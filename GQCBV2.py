@@ -56,6 +56,9 @@ class JudgeKeepResult(BaseModel):
     keep: int = 0
     resolvability: int = 0
     info: int = 0
+    decision_impact: float = 0.0
+    voi: float = 0.0
+    minutes_to_resolve: float = 0.0
     rationale: str = ""
     raw_line: str = ""
 
@@ -432,10 +435,12 @@ Practical solvability:
 
 You MUST output EXACTLY ONE LINE, with this format:
 
-keep=0|1; resolvability=X; info=Y; rationale=TEXT
+keep=0|1; resolvability=X; info=Y; decision_impact=D; voi=V; minutes_to_resolve=R; rationale=TEXT
 
 Hard constraints:
 - X and Y MUST be integers from 1 to 5.
+- D MUST be a float between 0 and 1 (0 = no impact on decisions for an average global citizen, 1 = very high impact).
+- V and R MUST be floats (V unbounded, higher = higher value of information; R >= 0, in minutes, lower = easier to resolve).
 - rationale MUST be <= 200 characters and MUST NOT contain semicolons.
 - The very first non-space characters of your reply MUST be "keep=".
 - You MUST NOT add any other lines, JSON, markdown, or commentary.
@@ -449,6 +454,12 @@ Scoring hints:
   with a simple, fast procedure.
 - info: 1 = almost no useful information for real decisions; 5 = high value-of-information for policies,
   investment, planning, or safety.
+- decision_impact: think of a random global citizen; 0 = knowing the answer would not change any behaviour,
+  1 = knowing the answer would clearly change important behaviours or choices.
+- voi: approximate value of information relative to important metrics (economic, risk, or parent-question
+  uncertainty); higher = better.
+- minutes_to_resolve: rough estimate of how long it would take a competent human or AI agent with web access
+  to resolve the question once the resolution date has passed.
 
 Decision rule (VERY STRICT):
 - If resolvability <= 3, you MUST set keep=0, even if information value is high.
@@ -486,8 +497,14 @@ JUDGE_USER_TMPL_KEEP = textwrap.dedent(
       * resolvability >= 4,
       * info >= 3.
 
+    Additional scoring dimensions (do NOT change the keep rule):
+    - decision_impact: 0–1, impact on decisions for a random global citizen if the answer were known.
+    - voi: float, overall value of information of this question; higher = better.
+    - minutes_to_resolve: float, approximate minutes needed to resolve the question once the resolution date has passed;
+      lower = better.
+
     Now output ONLY the single line:
-    keep=0|1; resolvability=X; info=Y; rationale=TEXT
+    keep=0|1; resolvability=X; info=Y; decision_impact=D; voi=V; minutes_to_resolve=R; rationale=TEXT
     """
 )
 
@@ -556,7 +573,7 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
 def parse_judge_keep_line(line: str) -> JudgeKeepResult:
     """
     Parse:
-      keep=0|1; resolvability=X; info=Y; rationale=TEXT
+      keep=0|1; resolvability=X; info=Y; decision_impact=D; voi=V; minutes_to_resolve=R; rationale=TEXT
     into a JudgeKeepResult.
     """
     line = line.strip()
@@ -574,11 +591,20 @@ def parse_judge_keep_line(line: str) -> JudgeKeepResult:
         except Exception:
             return default
 
+    def to_float(name: str, default: float = 0.0) -> float:
+        try:
+            return float(mapping.get(name, default))
+        except Exception:
+            return default
+
     keep = to_int("keep", 0)
     if keep not in (0, 1):
         keep = 0
     resolvability = to_int("resolvability", 0)
     info = to_int("info", 0)
+    decision_impact = to_float("decision_impact", 0.0)
+    voi = to_float("voi", 0.0)
+    minutes_to_resolve = to_float("minutes_to_resolve", 0.0)
 
     rationale = mapping.get("rationale", "").replace(";", ",").strip()
     if len(rationale) > 300:
@@ -588,6 +614,9 @@ def parse_judge_keep_line(line: str) -> JudgeKeepResult:
         keep=keep,
         resolvability=resolvability,
         info=info,
+        decision_impact=decision_impact,
+        voi=voi,
+        minutes_to_resolve=minutes_to_resolve,
         rationale=rationale,
         raw_line=line,
     )
@@ -825,7 +854,7 @@ def generate_initial_questions(
     }
 
 
-# ---------------------- Étape C2 – Judge (résolvabilité + info) ----------------------
+# ---------------------- Étape C2 – Judge (résolvabilité + info + critères sup.) ----------------------
 
 def judge_one_question_keep(
     q: ProtoQuestion,
@@ -840,13 +869,24 @@ def judge_one_question_keep(
         resolvability = random.randint(3, 5)
         info = random.randint(2, 5)
         keep = 1 if resolvability >= 4 and info >= 3 else 0
+        decision_impact = random.random()
+        voi = random.uniform(0.0, 5.0)
+        minutes_to_resolve = random.uniform(1.0, 30.0)
         rationale = "Mock judge (dry run)."
+        raw_line = (
+            f"keep={keep}; resolvability={resolvability}; info={info}; "
+            f"decision_impact={decision_impact:.2f}; voi={voi:.2f}; "
+            f"minutes_to_resolve={minutes_to_resolve:.2f}; rationale={rationale}"
+        )
         return JudgeKeepResult(
             keep=keep,
             resolvability=resolvability,
             info=info,
+            decision_impact=decision_impact,
+            voi=voi,
+            minutes_to_resolve=minutes_to_resolve,
             rationale=rationale,
-            raw_line=f"keep={keep}; resolvability={resolvability}; info={info}; rationale={rationale}",
+            raw_line=raw_line,
         )
 
     user_text = JUDGE_USER_TMPL_KEEP.format(
@@ -1245,7 +1285,7 @@ if run_button:
                                 )
                             judge_contexts.append(ctx)
 
-                        # Judge strict (résolvabilité + info)
+                        # Judge strict (résolvabilité + info + critères sup.)
                         try:
                             judge_res0: List[JudgeKeepResult] = judge_initial_questions(
                                 questions=all_questions,
@@ -1301,6 +1341,9 @@ if run_button:
                                         "judge_keep": jr.keep,
                                         "judge_resolvability": jr.resolvability,
                                         "judge_info": jr.info,
+                                        "judge_decision_impact": jr.decision_impact,
+                                        "judge_voi": jr.voi,
+                                        "judge_minutes_to_resolve": jr.minutes_to_resolve,
                                         "judge_rationale": jr.rationale,
                                         "judge_raw_line": jr.raw_line,
                                         "keep_final": bool(keep_final_flags[idx_q]),
@@ -1409,6 +1452,9 @@ if res is not None:
                 "judge_keep",
                 "judge_resolvability",
                 "judge_info",
+                "judge_decision_impact",
+                "judge_voi",
+                "judge_minutes_to_resolve",
                 "title",
                 "question",
                 "candidate_source",
@@ -1418,7 +1464,8 @@ if res is not None:
         ].copy()
 
         st.caption(
-            "All generation-0 proto-questions with strict judge scores (resolvability, info) "
+            "All generation-0 proto-questions with strict judge scores "
+            "(resolvability, info, decision impact, VOI, minutes_to_resolve) "
             "and final selection flag (keep_final)."
         )
         st.dataframe(df_init_view, use_container_width=True)
@@ -1475,6 +1522,160 @@ if res is not None:
         file_name="metaculus_prompt_mutation_proto_questions.json",
         mime="application/json",
     )
+
+    # ---------------------- Interactive refinement chat (enhanced UX) ----------------------
+    st.subheader("Interactive refinement chat")
+
+    kept_questions = [e for e in initial_entries if e.get("keep_final")]
+    if kept_questions:
+        with st.expander("Shortlisted questions (keep_final = True)", expanded=False):
+            for e in kept_questions:
+                st.markdown(
+                    f"- **{e['id']}** – {e['title']}\n\n"
+                    f"  {e['question']}"
+                )
+    else:
+        st.info("No questions are marked as keep_final. The chat will still work, but context is empty.")
+
+    # Préparer le bloc de questions pour le contexte du modèle
+    if kept_questions:
+        q_lines = [
+            f"{idx+1}. {e['id']} – {e['title']} – {e['question']}"
+            for idx, e in enumerate(kept_questions)
+        ]
+        questions_block = "\n".join(q_lines)
+    else:
+        questions_block = "None (no shortlisted questions)."
+
+    chat_system_prompt = f"""
+You are a forecasting question refinement assistant for Metaculus.
+
+Static context for this chat (do NOT restate it unless useful for clarity):
+
+Seed:
+{seed}
+
+Domain tags: {', '.join(tags)}
+
+Horizon: {horizon}
+
+Current shortlisted questions (id – title – question):
+{questions_block}
+
+Your role:
+- Read the user's feedback about these questions.
+- Propose improved or alternative proto-questions, still resolvable from public sources,
+  and broadly aligned with the same seed, tags and horizon.
+- Focus on: clarity, resolvability, practical value-of-information, and diversity of angles.
+- You may explicitly reference question ids (e.g. "g0-q3") to say how you are modifying them.
+
+Output format:
+- Always answer in English.
+- Use plain text, no JSON, no code fences.
+- Prefer a concise numbered list of suggested questions:
+  "<n>. [id or NEW] Short title – Full question sentence?"
+- You may also briefly comment (1–2 sentences) on why these changes are improvements,
+  but keep the answer compact and focused on concrete question text.
+""".strip()
+
+    if "refine_chat_history" not in st.session_state:
+        st.session_state["refine_chat_history"] = []
+
+    # Affichage de l'historique existant avec rendu type "boîte"
+    for msg in st.session_state["refine_chat_history"]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg["role"] == "assistant" and "revised_questions" in msg:
+                for q in msg["revised_questions"]:
+                    with st.container():
+                        st.markdown(f"**{q['id']}** – *{q['title']}*")
+                        st.markdown(q["question"])
+                        with st.expander("Resolution criteria"):
+                            st.markdown(
+                                f"- **Resolvability:** {q['resolvability']}/5  \n"
+                                f"- **Information value:** {q['info']}/5  \n"
+                                f"- **Decision impact:** {q['decision_impact']:.2f}  \n"
+                                f"- **VOI:** {q['voi']:.2f}  \n"
+                                f"- **Minutes to resolve:** {q['minutes_to_resolve']:.1f}  \n"
+                                f"- **Rationale:** {q['rationale']}"
+                            )
+
+    # Entrée utilisateur
+    user_input = st.chat_input("Give feedback about the questions, or ask for new variants.")
+
+    if user_input:
+        # Ajouter le message utilisateur à l'historique
+        st.session_state["refine_chat_history"].append({"role": "user", "content": user_input})
+        with st.chat_message("user"):
+            st.markdown(user_input)
+
+        # Construire la conversation complète à envoyer
+        or_messages: List[Dict[str, str]] = [{"role": "system", "content": chat_system_prompt}]
+        for m in st.session_state["refine_chat_history"]:
+            or_messages.append({"role": m["role"], "content": m["content"]})
+
+        # Appel du modèle principal
+        if dry_run:
+            assistant_reply = (
+                "Dry-run mode: I would normally propose refined or new proto-questions "
+                "based on your feedback and the shortlisted questions."
+            )
+        elif not get_openrouter_key():
+            assistant_reply = (
+                "No OPENROUTER_API_KEY is configured, so I cannot call the refinement model. "
+                "Please add a key in the sidebar or enable dry_run."
+            )
+        else:
+            try:
+                raw_reply = call_openrouter_raw(
+                    messages=or_messages,
+                    model=main_model,
+                    max_tokens=1200,
+                    temperature=0.5,
+                )
+                assistant_reply = raw_reply.strip()
+            except Exception as e:
+                assistant_reply = f"Error from refinement assistant: {e}"
+
+        # Construire la liste des questions à afficher avec critères
+        revised_qs: List[Dict[str, Any]] = []
+        for e in kept_questions:
+            revised_qs.append(
+                {
+                    "id": e["id"],
+                    "title": e["title"],
+                    "question": e["question"],
+                    "resolvability": e["judge_resolvability"],
+                    "info": e["judge_info"],
+                    "decision_impact": e["judge_decision_impact"],
+                    "voi": e["judge_voi"],
+                    "minutes_to_resolve": e["judge_minutes_to_resolve"],
+                    "rationale": e["judge_rationale"],
+                }
+            )
+
+        # Afficher la nouvelle "boîte de dialogue" assistant + questions/critères
+        with st.chat_message("assistant"):
+            st.markdown(assistant_reply)
+            for q in revised_qs:
+                with st.container():
+                    st.markdown(f"**{q['id']}** – *{q['title']}*")
+                    st.markdown(q["question"])
+                    with st.expander("Resolution criteria"):
+                        st.markdown(
+                            f"- **Resolvability:** {q['resolvability']}/5  \n"
+                            f"- **Information value:** {q['info']}/5  \n"
+                            f"- **Decision impact:** {q['decision_impact']:.2f}  \n"
+                            f"- **VOI:** {q['voi']:.2f}  \n"
+                            f"- **Minutes to resolve:** {q['minutes_to_resolve']:.1f}  \n"
+                            f"- **Rationale:** {q['rationale']}"
+                        )
+
+        # Sauvegarder dans l'historique complet
+        st.session_state["refine_chat_history"].append(
+            {"role": "assistant", "content": assistant_reply, "revised_questions": revised_qs}
+        )
+
 else:
     st.info(
         "Configure the number of mutated prompts, total N questions, K kept, "
