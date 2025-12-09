@@ -482,6 +482,33 @@ if res is not None:
     else:
         st.info("No proto-questions available.")
 
+    # Critères de résolution initiaux (sources explicites)
+    st.subheader("Initial resolution criteria & sources")
+    if df_init.empty:
+        st.caption("No proto-questions to show resolution criteria for.")
+    else:
+        prompt_sources_map = {
+            pe.get("prompt_id"): pe.get("sources", []) for pe in prompt_entries
+        }
+
+        for _, row in df_init.iterrows():
+            with st.container():
+                st.markdown(f"**{row['id']}** – *{row['title']}*")
+                st.markdown(row["question"])
+                with st.expander("Resolution criteria & explicit sources", expanded=False):
+                    srcs = prompt_sources_map.get(row["parent_prompt_id"], [])
+                    src_block = "\n".join(f"- {s}" for s in srcs) or "- (no sources returned)"
+                    st.markdown(
+                        f"- **Resolvability:** {row['judge_resolvability']}/5  \n"
+                        f"- **Information value:** {row['judge_info']}/5  \n"
+                        f"- **Decision impact:** {row['judge_decision_impact']:.2f}  \n"
+                        f"- **VOI:** {row['judge_voi']:.2f}  \n"
+                        f"- **Minutes to resolve:** {row['judge_minutes_to_resolve']:.1f}  \n"
+                        f"- **Rationale:** {row['judge_rationale']}  \n"
+                        f"- **Candidate source (generator hint):** {row['candidate_source']}  \n"
+                        f"- **Sources to use for resolution:**\n{src_block}"
+                    )
+
     # Debug / raw outputs
     with st.expander("Debug: raw model outputs"):
         st.markdown("**Raw prompt mutation output (JSON):**")
@@ -637,6 +664,7 @@ Output format:
             )
         else:
             try:
+                assistant_reply = call_openrouter_raw(
                 raw_reply = call_openrouter_raw(
                     messages=or_messages,
                     model=main_model,
