@@ -665,11 +665,13 @@ Output format:
         else:
             try:
                 assistant_reply = call_openrouter_raw(
+                raw_reply = call_openrouter_raw(
                     messages=or_messages,
                     model=main_model,
                     max_tokens=1200,
                     temperature=0.5,
                 )
+                assistant_reply = raw_reply.strip()
             except Exception as e:
                 assistant_reply = f"Error from refinement assistant: {e}"
 
