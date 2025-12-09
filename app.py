@@ -675,7 +675,6 @@ Output format:
             )
         else:
             try:
-                assistant_reply = call_openrouter_raw(
                 raw_reply = call_openrouter_raw(
                     messages=or_messages,
                     model=main_model,
