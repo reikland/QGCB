@@ -4,7 +4,7 @@ from typing import Any, Dict, List
 import pandas as pd
 import streamlit as st
 
-from qgcb.core import (
+from qgcb import (
     DEFAULT_JUDGE_MODEL,
     DEFAULT_MAIN_MODEL,
     JudgeKeepResult,
