@@ -581,8 +581,25 @@ if res is not None:
             for idx, e in enumerate(kept_questions)
         ]
         questions_block = "\n".join(q_lines)
+
+        # Inclure les critères d'évaluation pour chaque question conservée
+        criteria_lines = []
+        for e in kept_questions:
+            criteria_lines.append(
+                (
+                    f"{e['id']} – Resolvability: {e['judge_resolvability']}/5; "
+                    f"Information value: {e['judge_info']}/5; "
+                    f"Decision impact: {e['judge_decision_impact']:.2f}; "
+                    f"VOI: {e['judge_voi']:.2f}; "
+                    f"Minutes to resolve: {e['judge_minutes_to_resolve']:.1f}; "
+                    f"Rationale: {e['judge_rationale']}"
+                )
+            )
+
+        criteria_block = "\n".join(criteria_lines)
     else:
         questions_block = "None (no shortlisted questions)."
+        criteria_block = "None (no shortlisted questions)."
 
     chat_system_prompt = f"""
 You are a dedicated refinement chatbot for Metaculus forecasting questions. You run in a
@@ -609,6 +626,9 @@ Horizon: {horizon}
 Current shortlisted questions (id – title – question):
 {questions_block}
 
+Resolution criteria for shortlisted questions:
+{criteria_block}
+
 Your role:
 - Read and respect the user's feedback about these questions.
 - Start each reply by explicitly acknowledging the user's latest feedback and stating how
@@ -631,28 +651,10 @@ Output format:
     if "refine_chat_history" not in st.session_state:
         st.session_state["refine_chat_history"] = []
 
-    # Affichage de l'historique existant (raw text only)
+    # Affichage de l'historique existant (texte brut seulement)
     for msg in st.session_state["refine_chat_history"]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
-    # Affichage de l'historique existant avec rendu type "boîte"
-    for msg in st.session_state["refine_chat_history"]:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
-            if msg["role"] == "assistant" and "revised_questions" in msg:
-                for q in msg["revised_questions"]:
-                    with st.container():
-                        st.markdown(f"**{q['id']}** – *{q['title']}*")
-                        st.markdown(q["question"])
-                        with st.expander("Resolution criteria"):
-                            st.markdown(
-                                f"- **Resolvability:** {q['resolvability']}/5  \n"
-                                f"- **Information value:** {q['info']}/5  \n"
-                                f"- **Decision impact:** {q['decision_impact']:.2f}  \n"
-                                f"- **VOI:** {q['voi']:.2f}  \n"
-                                f"- **Minutes to resolve:** {q['minutes_to_resolve']:.1f}  \n"
-                                f"- **Rationale:** {q['rationale']}"
-                            )
 
     # Entrée utilisateur
     user_input = st.chat_input("Give feedback about the questions, or ask for new variants.")
@@ -691,44 +693,12 @@ Output format:
             except Exception as e:
                 assistant_reply = f"Error from refinement assistant: {e}"
 
-        # Construire la liste des questions à afficher avec critères
-        revised_qs: List[Dict[str, Any]] = []
-        for e in kept_questions:
-            revised_qs.append(
-                {
-                    "id": e["id"],
-                    "title": e["title"],
-                    "question": e["question"],
-                    "resolvability": e["judge_resolvability"],
-                    "info": e["judge_info"],
-                    "decision_impact": e["judge_decision_impact"],
-                    "voi": e["judge_voi"],
-                    "minutes_to_resolve": e["judge_minutes_to_resolve"],
-                    "rationale": e["judge_rationale"],
-                }
-            )
-
-        # Afficher la nouvelle "boîte de dialogue" assistant + questions/critères
+        # Afficher la nouvelle réponse de l'assistant (texte brut)
         with st.chat_message("assistant"):
             st.markdown(assistant_reply)
-            for q in revised_qs:
-                with st.container():
-                    st.markdown(f"**{q['id']}** – *{q['title']}*")
-                    st.markdown(q["question"])
-                    with st.expander("Resolution criteria"):
-                        st.markdown(
-                            f"- **Resolvability:** {q['resolvability']}/5  \n"
-                            f"- **Information value:** {q['info']}/5  \n"
-                            f"- **Decision impact:** {q['decision_impact']:.2f}  \n"
-                            f"- **VOI:** {q['voi']:.2f}  \n"
-                            f"- **Minutes to resolve:** {q['minutes_to_resolve']:.1f}  \n"
-                            f"- **Rationale:** {q['rationale']}"
-                        )
 
         # Sauvegarder dans l'historique complet
-        st.session_state["refine_chat_history"].append(
-            {"role": "assistant", "content": assistant_reply, "revised_questions": revised_qs}
-        )
+        st.session_state["refine_chat_history"].append({"role": "assistant", "content": assistant_reply})
 
 else:
     st.info(
