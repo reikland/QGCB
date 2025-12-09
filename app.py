@@ -585,6 +585,16 @@ if res is not None:
         questions_block = "None (no shortlisted questions)."
 
     chat_system_prompt = f"""
+You are a dedicated refinement chatbot for Metaculus forecasting questions. You run in a
+fresh instance of the main model (same model class as generation) with your own prompt.
+
+Follow every user instruction exactly and only do what the user asks. Avoid self-censoring,
+over-sanitising, or ignoring user requests. Always provide the raw model output (plain text)
+that directly reflects the user's asks.
+
+Context about you: you help users refine or rewrite proto-questions for Metaculus forecasts.
+Obey the user while keeping questions resolvable via public sources and aligned with the
+provided seed, tags, and horizon.
 You are a forecasting question refinement assistant for Metaculus.
 
 Static context for this chat (do NOT restate it unless useful for clarity):
@@ -600,6 +610,7 @@ Current shortlisted questions (id – title – question):
 {questions_block}
 
 Your role:
+- Read and respect the user's feedback about these questions.
 - Read the user's feedback about these questions.
 - Propose improved or alternative proto-questions, still resolvable from public sources,
   and broadly aligned with the same seed, tags and horizon.
@@ -664,6 +675,7 @@ Output format:
             )
         else:
             try:
+                assistant_reply = call_openrouter_raw(
                 raw_reply = call_openrouter_raw(
                     messages=or_messages,
                     model=main_model,
