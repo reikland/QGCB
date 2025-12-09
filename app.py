@@ -560,144 +560,77 @@ if res is not None:
         mime="application/json",
     )
 
-    # ---------------------- Interactive refinement chat (enhanced UX) ----------------------
-    st.subheader("Interactive refinement chat")
+    # ---------------------- Chat simple avec questions conservées ----------------------
+    st.subheader("Chat de suivi (GPT‑5 avec questions conservées)")
 
     kept_questions = [e for e in initial_entries if e.get("keep_final")]
     if kept_questions:
-        with st.expander("Shortlisted questions (keep_final = True)", expanded=False):
+        with st.expander("Questions conservées (keep_final = True)", expanded=False):
             for e in kept_questions:
                 st.markdown(
                     f"- **{e['id']}** – {e['title']}\n\n"
                     f"  {e['question']}"
                 )
     else:
-        st.info("No questions are marked as keep_final. The chat will still work, but context is empty.")
-
-    # Préparer le bloc de questions pour le contexte du modèle
-    if kept_questions:
-        q_lines = [
-            f"{idx+1}. {e['id']} – {e['title']} – {e['question']}"
-            for idx, e in enumerate(kept_questions)
-        ]
-        questions_block = "\n".join(q_lines)
-
-        # Inclure les critères d'évaluation pour chaque question conservée
-        criteria_lines = []
-        for e in kept_questions:
-            criteria_lines.append(
-                (
-                    f"{e['id']} – Resolvability: {e['judge_resolvability']}/5; "
-                    f"Information value: {e['judge_info']}/5; "
-                    f"Decision impact: {e['judge_decision_impact']:.2f}; "
-                    f"VOI: {e['judge_voi']:.2f}; "
-                    f"Minutes to resolve: {e['judge_minutes_to_resolve']:.1f}; "
-                    f"Rationale: {e['judge_rationale']}"
-                )
-            )
-
-        criteria_block = "\n".join(criteria_lines)
-    else:
-        questions_block = "None (no shortlisted questions)."
-        criteria_block = "None (no shortlisted questions)."
+        st.info(
+            "Aucune question n'est marquée keep_final. Le chat fonctionnera quand même, "
+            "mais sans contexte joint."
+        )
 
     chat_system_prompt = f"""
-You are a dedicated refinement chatbot for Metaculus forecasting questions. You run in a
-fresh instance of the main model (same model class as generation) with your own prompt.
+You are a fresh GPT-5.1 chat instance dedicated to quick follow-up with the user.
+Always answer in plain text (no JSON, no markdown code blocks).
 
-Follow every user instruction exactly and only do what the user asks. Avoid self-censoring,
-over-sanitising, or ignoring user requests. Always provide the raw model output (plain text)
-that directly reflects the user's asks.
-
-Context about you: you help users refine or rewrite proto-questions for Metaculus forecasts.
-Obey the user while keeping questions resolvable via public sources and aligned with the
-provided seed, tags, and horizon.
-You are a forecasting question refinement assistant for Metaculus.
-
-Static context for this chat (do NOT restate it unless useful for clarity):
-
-Seed:
-{seed}
-
-Domain tags: {', '.join(tags)}
-
-Horizon: {horizon}
-
-Current shortlisted questions (id – title – question):
-{questions_block}
-
-Resolution criteria for shortlisted questions:
-{criteria_block}
-
-Your role:
-- Read and respect the user's feedback about these questions.
-- Start each reply by explicitly acknowledging the user's latest feedback and stating how
-  you will adjust the shortlisted questions (e.g., "I'll tighten g0-q1 by adding X...").
-- Read the user's feedback about these questions.
-- Propose improved or alternative proto-questions, still resolvable from public sources,
-  and broadly aligned with the same seed, tags and horizon.
-- Focus on: clarity, resolvability, practical value-of-information, and diversity of angles.
-- You may explicitly reference question ids (e.g. "g0-q3") to say how you are modifying them.
-
-Output format:
-- Always answer in English.
-- Use plain text, no JSON, no code fences.
-- Prefer a concise numbered list of suggested questions:
-  "<n>. [id or NEW] Short title – Full question sentence?"
-- You may also briefly comment (1–2 sentences) on why these changes are improvements,
-  but keep the answer compact and focused on concrete question text.
+Static context (do not repeat unless the user asks):
+- Seed: {seed}
+- Tags: {', '.join(tags)}
+- Horizon: {horizon}
+- Shortlisted questions (keep_final):
+{chr(10).join([f"  • {e['id']} – {e['title']} – {e['question']}" for e in kept_questions]) if kept_questions else '  • None'}
 """.strip()
 
     if "refine_chat_history" not in st.session_state:
         st.session_state["refine_chat_history"] = []
 
-    # Affichage de l'historique existant (texte brut seulement)
     for msg in st.session_state["refine_chat_history"]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    # Entrée utilisateur
-    user_input = st.chat_input("Give feedback about the questions, or ask for new variants.")
+    user_input = st.chat_input("Écrivez un message pour discuter des questions conservées.")
 
     if user_input:
-        # Ajouter le message utilisateur à l'historique
         st.session_state["refine_chat_history"].append({"role": "user", "content": user_input})
         with st.chat_message("user"):
             st.markdown(user_input)
 
-        # Construire la conversation complète à envoyer
         or_messages: List[Dict[str, str]] = [{"role": "system", "content": chat_system_prompt}]
-        for m in st.session_state["refine_chat_history"]:
-            or_messages.append({"role": m["role"], "content": m["content"]})
+        or_messages.extend(st.session_state["refine_chat_history"])
 
-        # Appel du modèle principal
         if dry_run:
             assistant_reply = (
-                "Dry-run mode: I would normally propose refined or new proto-questions "
-                "based on your feedback and the shortlisted questions."
+                "Mode dry-run : je simulerais ici une réponse basée sur vos questions "
+                "conservées et votre message."
             )
         elif not get_openrouter_key():
             assistant_reply = (
-                "No OPENROUTER_API_KEY is configured, so I cannot call the refinement model. "
-                "Please add a key in the sidebar or enable dry_run."
+                "Aucune clé OPENROUTER_API_KEY n'est configurée. Ajoutez-la dans le "
+                "panneau latéral ou activez le mode dry_run."
             )
         else:
             try:
                 raw_reply = call_openrouter_raw(
                     messages=or_messages,
-                    model=main_model,
+                    model="openai/gpt-5.1",
                     max_tokens=1200,
                     temperature=0.5,
                 )
                 assistant_reply = raw_reply.strip()
             except Exception as e:
-                assistant_reply = f"Error from refinement assistant: {e}"
+                assistant_reply = f"Erreur lors de l'appel du chatbot : {e}"
 
-        # Afficher la nouvelle réponse de l'assistant (texte brut)
         with st.chat_message("assistant"):
             st.markdown(assistant_reply)
 
-        # Sauvegarder dans l'historique complet
         st.session_state["refine_chat_history"].append({"role": "assistant", "content": assistant_reply})
 
 else:
