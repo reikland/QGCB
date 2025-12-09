@@ -388,9 +388,6 @@ if run_button:
                             }
 
                             st.session_state["evo_result"] = res_dict
-                            # Reset refinement state for this fresh run to keep chat aligned
-                            st.session_state["refine_chat_history"] = []
-                            st.session_state["refine_context_block"] = "None (no shortlisted questions)."
 
 # ---------------------- Display results ----------------------
 
@@ -577,25 +574,15 @@ if res is not None:
     else:
         st.info("No questions are marked as keep_final. The chat will still work, but context is empty.")
 
-    # Préparer un bloc de contexte persistant (questions + critères/sources)
+    # Préparer le bloc de questions pour le contexte du modèle
     if kept_questions:
-        q_lines = []
-        for idx, e in enumerate(kept_questions):
-            resolution_hint = e.get("candidate_source") or "(no resolution hint)"
-            q_lines.append(
-                f"{idx+1}. {e['id']} – {e['title']} – {e['question']}\n"
-                f"   • Resolution hint: {resolution_hint}"
-            )
+        q_lines = [
+            f"{idx+1}. {e['id']} – {e['title']} – {e['question']}"
+            for idx, e in enumerate(kept_questions)
+        ]
         questions_block = "\n".join(q_lines)
     else:
         questions_block = "None (no shortlisted questions)."
-
-    # Initialise ou conserve l'état de contexte de refinement
-    if "refine_context_block" not in st.session_state:
-        st.session_state["refine_context_block"] = questions_block
-    elif kept_questions and st.session_state.get("refine_context_block") == "None (no shortlisted questions).":
-        # Si un nouveau run fournit des questions, remplacer le placeholder vide
-        st.session_state["refine_context_block"] = questions_block
 
     chat_system_prompt = f"""
 You are a dedicated refinement chatbot for Metaculus forecasting questions. You run in a
@@ -608,6 +595,7 @@ that directly reflects the user's asks.
 Context about you: you help users refine or rewrite proto-questions for Metaculus forecasts.
 Obey the user while keeping questions resolvable via public sources and aligned with the
 provided seed, tags, and horizon.
+You are a forecasting question refinement assistant for Metaculus.
 
 Static context for this chat (do NOT restate it unless useful for clarity):
 
@@ -619,12 +607,13 @@ Domain tags: {', '.join(tags)}
 Horizon: {horizon}
 
 Current shortlisted questions (id – title – question):
-{st.session_state.get("refine_context_block", questions_block)}
+{questions_block}
 
 Your role:
 - Read and respect the user's feedback about these questions.
 - Start each reply by explicitly acknowledging the user's latest feedback and stating how
   you will adjust the shortlisted questions (e.g., "I'll tighten g0-q1 by adding X...").
+- Read the user's feedback about these questions.
 - Propose improved or alternative proto-questions, still resolvable from public sources,
   and broadly aligned with the same seed, tags and horizon.
 - Focus on: clarity, resolvability, practical value-of-information, and diversity of angles.
@@ -646,6 +635,24 @@ Output format:
     for msg in st.session_state["refine_chat_history"]:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+    # Affichage de l'historique existant avec rendu type "boîte"
+    for msg in st.session_state["refine_chat_history"]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
+            if msg["role"] == "assistant" and "revised_questions" in msg:
+                for q in msg["revised_questions"]:
+                    with st.container():
+                        st.markdown(f"**{q['id']}** – *{q['title']}*")
+                        st.markdown(q["question"])
+                        with st.expander("Resolution criteria"):
+                            st.markdown(
+                                f"- **Resolvability:** {q['resolvability']}/5  \n"
+                                f"- **Information value:** {q['info']}/5  \n"
+                                f"- **Decision impact:** {q['decision_impact']:.2f}  \n"
+                                f"- **VOI:** {q['voi']:.2f}  \n"
+                                f"- **Minutes to resolve:** {q['minutes_to_resolve']:.1f}  \n"
+                                f"- **Rationale:** {q['rationale']}"
+                            )
 
     # Entrée utilisateur
     user_input = st.chat_input("Give feedback about the questions, or ask for new variants.")
@@ -656,22 +663,8 @@ Output format:
         with st.chat_message("user"):
             st.markdown(user_input)
 
-        # Construire la conversation complète à envoyer, avec contexte frais
-        context_message = {
-            "role": "system",
-            "content": (
-                "Context refresh for this refinement turn: keep the shortlisted questions,"
-                " domain tags, horizon, and the user's latest feedback in mind."
-                f"\n\nWorking shortlist & resolution hints (carry over from previous turns):\n"
-                f"{st.session_state.get('refine_context_block', questions_block)}\n\n"
-                f"Latest user feedback to honor:\n{user_input}"
-            ),
-        }
-
-        or_messages: List[Dict[str, str]] = [
-            {"role": "system", "content": chat_system_prompt},
-            context_message,
-        ]
+        # Construire la conversation complète à envoyer
+        or_messages: List[Dict[str, str]] = [{"role": "system", "content": chat_system_prompt}]
         for m in st.session_state["refine_chat_history"]:
             or_messages.append({"role": m["role"], "content": m["content"]})
 
@@ -688,25 +681,53 @@ Output format:
             )
         else:
             try:
-                assistant_reply = call_openrouter_raw(
+                raw_reply = call_openrouter_raw(
                     messages=or_messages,
                     model=main_model,
                     max_tokens=1200,
                     temperature=0.5,
                 )
+                assistant_reply = raw_reply.strip()
             except Exception as e:
                 assistant_reply = f"Error from refinement assistant: {e}"
 
-        # Afficher la nouvelle "boîte de dialogue" assistant (raw output only)
+        # Construire la liste des questions à afficher avec critères
+        revised_qs: List[Dict[str, Any]] = []
+        for e in kept_questions:
+            revised_qs.append(
+                {
+                    "id": e["id"],
+                    "title": e["title"],
+                    "question": e["question"],
+                    "resolvability": e["judge_resolvability"],
+                    "info": e["judge_info"],
+                    "decision_impact": e["judge_decision_impact"],
+                    "voi": e["judge_voi"],
+                    "minutes_to_resolve": e["judge_minutes_to_resolve"],
+                    "rationale": e["judge_rationale"],
+                }
+            )
+
+        # Afficher la nouvelle "boîte de dialogue" assistant + questions/critères
         with st.chat_message("assistant"):
             st.markdown(assistant_reply)
+            for q in revised_qs:
+                with st.container():
+                    st.markdown(f"**{q['id']}** – *{q['title']}*")
+                    st.markdown(q["question"])
+                    with st.expander("Resolution criteria"):
+                        st.markdown(
+                            f"- **Resolvability:** {q['resolvability']}/5  \n"
+                            f"- **Information value:** {q['info']}/5  \n"
+                            f"- **Decision impact:** {q['decision_impact']:.2f}  \n"
+                            f"- **VOI:** {q['voi']:.2f}  \n"
+                            f"- **Minutes to resolve:** {q['minutes_to_resolve']:.1f}  \n"
+                            f"- **Rationale:** {q['rationale']}"
+                        )
 
         # Sauvegarder dans l'historique complet
-        st.session_state["refine_chat_history"].append({"role": "assistant", "content": assistant_reply})
-
-        # Mettre à jour le bloc de contexte pour les prochains tours (base = dernière réponse)
-        st.session_state["refine_context_block"] = assistant_reply or st.session_state.get(
-            "refine_context_block", questions_block
+        st.session_state["refine_chat_history"].append(
+            {"role": "assistant", "content": assistant_reply, "revised_questions": revised_qs}
         )
 
 else:
