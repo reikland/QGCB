@@ -611,6 +611,8 @@ Current shortlisted questions (id – title – question):
 
 Your role:
 - Read and respect the user's feedback about these questions.
+- Start each reply by explicitly acknowledging the user's latest feedback and stating how
+  you will adjust the shortlisted questions (e.g., "I'll tighten g0-q1 by adding X...").
 - Read the user's feedback about these questions.
 - Propose improved or alternative proto-questions, still resolvable from public sources,
   and broadly aligned with the same seed, tags and horizon.
@@ -629,6 +631,10 @@ Output format:
     if "refine_chat_history" not in st.session_state:
         st.session_state["refine_chat_history"] = []
 
+    # Affichage de l'historique existant (raw text only)
+    for msg in st.session_state["refine_chat_history"]:
+        with st.chat_message(msg["role"]):
+            st.markdown(msg["content"])
     # Affichage de l'historique existant avec rendu type "boîte"
     for msg in st.session_state["refine_chat_history"]:
         with st.chat_message(msg["role"]):
