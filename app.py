@@ -595,6 +595,7 @@ that directly reflects the user's asks.
 Context about you: you help users refine or rewrite proto-questions for Metaculus forecasts.
 Obey the user while keeping questions resolvable via public sources and aligned with the
 provided seed, tags, and horizon.
+You are a forecasting question refinement assistant for Metaculus.
 
 Static context for this chat (do NOT restate it unless useful for clarity):
 
@@ -610,6 +611,7 @@ Current shortlisted questions (id – title – question):
 
 Your role:
 - Read and respect the user's feedback about these questions.
+- Read the user's feedback about these questions.
 - Propose improved or alternative proto-questions, still resolvable from public sources,
   and broadly aligned with the same seed, tags and horizon.
 - Focus on: clarity, resolvability, practical value-of-information, and diversity of angles.
@@ -674,11 +676,13 @@ Output format:
         else:
             try:
                 assistant_reply = call_openrouter_raw(
+                raw_reply = call_openrouter_raw(
                     messages=or_messages,
                     model=main_model,
                     max_tokens=1200,
                     temperature=0.5,
                 )
+                assistant_reply = raw_reply.strip()
             except Exception as e:
                 assistant_reply = f"Error from refinement assistant: {e}"
 
