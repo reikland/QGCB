@@ -452,6 +452,7 @@ if res is not None:
     st.subheader("Proto-questions (generation 0, across all prompts)")
 
     df_init = pd.DataFrame(initial_entries)
+    df_init_for_download = None
 
     if not df_init.empty:
         df_init_view = df_init[
@@ -479,6 +480,9 @@ if res is not None:
             "and final selection flag (keep_final)."
         )
         st.dataframe(df_init_view, use_container_width=True)
+
+        # Align export columns with the user-facing table order
+        df_init_for_download = df_init_view
     else:
         st.info("No proto-questions available.")
 
@@ -547,10 +551,10 @@ if res is not None:
     # Download CSV
     st.subheader("Download CSV")
 
-    if df_init.empty:
+    if df_init.empty or df_init_for_download is None:
         st.caption("No proto-questions available for download.")
     else:
-        csv_bytes = df_init.to_csv(index=False).encode("utf-8")
+        csv_bytes = df_init_for_download.to_csv(index=False).encode("utf-8")
 
         st.download_button(
             "Download proto-questions (CSV)",
