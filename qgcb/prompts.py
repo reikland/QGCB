@@ -142,6 +142,10 @@ Content constraints:
 - Avoid questions that require obscure, proprietary, or extremely hard-to-find sources.
 - Avoid trivial questions whose probability is obviously ~0% or ~100%.
 - Avoid questions that are already resolved.
+- The Candidate-source line MUST name precise public pages or endpoints to use for resolution
+  (dataset + table/report name, edition/year, and URL or platform path if known). If several
+  similarly named pages exist, pick the most authoritative one and add a short disambiguation
+  cue (e.g., "use the 2024 IMF WEO October database country table for GDP, not earlier editions").
 
 STRICT FORMAT (LINE-BASED)
 For each i = 1..N you output a block with these 5 lines:
@@ -151,7 +155,7 @@ Role: CORE or VARIANT
 Title: <short title, <= 100 characters, single line>
 Question: <1–3 sentences, single line, ends with '?' or equivalent>
 Angle: <short phrase capturing the angle within the cluster>
-Candidate-source: <likely family of public resolution sources/datasets, single line>
+Candidate-source: <precise public page(s) or endpoint to resolve, with disambiguation if needed>
 
 Between blocks you MAY optionally have a single blank line.
 You MUST NOT output anything else before, between, or after the blocks.

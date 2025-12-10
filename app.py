@@ -1,4 +1,5 @@
 from typing import Any, Dict, List
+from datetime import datetime, timezone
 
 import pandas as pd
 import streamlit as st
@@ -225,6 +226,8 @@ if run_button:
                     pe["sources_raw"] = src_res.get("raw_output", "")
 
             # C) Génération de questions pour l'ensemble des prompts (répartition N_total)
+            generated_at = datetime.now(timezone.utc).isoformat()
+
             with st.spinner("Step 3/3 – Generating proto-questions across all prompts and judging them..."):
                 all_questions: List[ProtoQuestion] = []
                 all_prompt_ids: List[str] = []
@@ -373,6 +376,10 @@ if run_button:
                                     "k_keep": k_keep,
                                     "n_mutations": n_mutations,
                                 },
+                                "run_metadata": {
+                                    "generated_at_utc": generated_at,
+                                    "resolution_horizon": horizon,
+                                },
                                 "seed": seed,
                                 "tags": tags,
                                 "horizon": horizon,
@@ -482,7 +489,10 @@ if res is not None:
         st.dataframe(df_init_view, use_container_width=True)
 
         # Align export columns with the user-facing table order
-        df_init_for_download = df_init_view
+        df_init_for_download = df_init_view.copy()
+        df_init_for_download["seed"] = seed
+        df_init_for_download["domain_tags"] = ", ".join(tags)
+        df_init_for_download["resolution_horizon"] = horizon
     else:
         st.info("No proto-questions available.")
 
