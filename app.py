@@ -1,4 +1,3 @@
-import json as _json
 from typing import Any, Dict, List
 
 import pandas as pd
@@ -93,9 +92,10 @@ with st.sidebar:
     n_initial = st.slider(
         "Total N proto-questions (across ALL prompts)",
         min_value=5,
-        max_value=60,
+        max_value=20,
         value=20,
         step=1,
+        help="Maximum 20 proto-questions can be generated per run.",
     )
 
     k_keep = st.slider(
@@ -544,21 +544,20 @@ if res is not None:
         else:
             st.caption("No judge lines available.")
 
-    # Download JSON
-    st.subheader("Download JSON")
+    # Download CSV
+    st.subheader("Download CSV")
 
-    json_bytes = _json.dumps(
-        res,
-        ensure_ascii=False,
-        indent=2,
-    ).encode("utf-8")
+    if df_init.empty:
+        st.caption("No proto-questions available for download.")
+    else:
+        csv_bytes = df_init.to_csv(index=False).encode("utf-8")
 
-    st.download_button(
-        "Download full run (JSON)",
-        data=json_bytes,
-        file_name="metaculus_prompt_mutation_proto_questions.json",
-        mime="application/json",
-    )
+        st.download_button(
+            "Download proto-questions (CSV)",
+            data=csv_bytes,
+            file_name="metaculus_proto_questions.csv",
+            mime="text/csv",
+        )
 
     # ---------------------- Chat simple avec questions conservées ----------------------
     st.subheader("Chat de suivi (GPT‑5 avec questions conservées)")
