@@ -54,6 +54,7 @@ def call_openrouter_raw(
     max_tokens: int = 2000,
     temperature: float = 0.4,
     retries: int = 3,
+    response_format: Optional[Dict[str, Any]] = None,
 ) -> str:
     """Lightweight wrapper around OpenRouter chat completions."""
 
@@ -64,6 +65,9 @@ def call_openrouter_raw(
         "top_p": 1,
         "max_tokens": max_tokens,
     }
+
+    if response_format:
+        payload["response_format"] = response_format
 
     last_error: Optional[Exception] = None
 
@@ -96,6 +100,17 @@ def call_openrouter_raw(
             time.sleep(0.8 * (k + 1))
 
     raise RuntimeError(f"[openrouter] giving up after retries: {repr(last_error)}")
+
+
+def _strip_code_fences(text: str) -> str:
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        stripped = stripped[3:]
+        if "\n" in stripped:
+            stripped = stripped.split("\n", 1)[1]
+    if stripped.endswith("```"):
+        stripped = stripped[: -3]
+    return stripped.strip()
 
 
 def _extract_json_block(text: str) -> str:
@@ -136,9 +151,19 @@ def call_openrouter_structured(
                 model=model,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                response_format={"type": "json_object"},
             )
-            candidate = _extract_json_block(raw)
-            data = _json.loads(candidate)
+            candidates = [raw, _strip_code_fences(raw), _extract_json_block(raw)]
+            last_exc: Optional[Exception] = None
+            for cand in candidates:
+                try:
+                    data = _json.loads(cand)
+                    break
+                except Exception as exc:  # pragma: no cover - defensive
+                    last_exc = exc
+                    continue
+            else:
+                raise last_exc or RuntimeError("No JSON candidate parsed")
             if isinstance(data, dict):
                 return data
             return {"data": data}
