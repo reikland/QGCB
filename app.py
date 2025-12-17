@@ -12,6 +12,7 @@ from qgcb import (
     call_openrouter_raw,
     find_resolution_sources_for_prompt,
     generate_initial_questions,
+    generate_resolution_card,
     get_openrouter_key,
     judge_initial_questions,
     mutate_seed_prompt,
@@ -22,14 +23,16 @@ from qgcb import (
 # 6. STREAMLIT UI
 # ============================================================
 
-if "evo_result" not in st.session_state:
-    st.session_state["evo_result"] = None
-
 st.set_page_config(
     page_title="Metaculus – Evolutionary Proto Question Generator",
     page_icon="🧬",
     layout="wide",
 )
+
+if "evo_result" not in st.session_state:
+    st.session_state["evo_result"] = None
+if "resolution_cards" not in st.session_state:
+    st.session_state["resolution_cards"] = {}
 
 st.title("Metaculus – Evolutionary Proto Question Generator")
 
@@ -351,6 +354,8 @@ if run_button:
                                         "title": q.title,
                                         "question": q.question,
                                         "candidate_source": q.candidate_source,
+                                        "rating": getattr(q, "rating", ""),
+                                        "rating_rationale": getattr(q, "rating_rationale", ""),
                                         "judge_keep": jr.keep,
                                         "judge_resolvability": jr.resolvability,
                                         "judge_info": jr.info,
@@ -409,188 +414,183 @@ if res is not None:
     prompt_entries = res.get("prompts", [])
     initial_entries = res["initial"]
 
-    st.subheader("Run summary")
+    tab_overview, tab_cards = st.tabs(
+        ["Synthèse & questions", "Fiches de résolution (questions conservées)"]
+    )
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(f"**Main model (mutations + sources + generation):** `{main_model}`")
-        st.markdown(f"**Judge model (strict resolvability):** `{judge_model}`")
-    with col2:
-        st.markdown(f"**Total N proto-questions (requested):** {res['params']['n_initial_total']}")
-        st.markdown(f"**K target kept:** {res['params']['k_keep']}")
-    with col3:
-        st.markdown(f"**Number of mutated prompts:** {res['params']['n_mutations']}")
-        st.markdown(f"**Horizon:** {horizon}")
+    with tab_overview:
+        st.subheader("Run summary")
 
-    st.markdown("**Seed preview:**")
-    st.caption(seed[:250] + ("..." if len(seed) > 250 else ""))
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(
+                f"**Main model (mutations + sources + generation):** `{main_model}`"
+            )
+            st.markdown(f"**Judge model (strict resolvability):** `{judge_model}`")
+        with col2:
+            st.markdown(
+                f"**Total N proto-questions (requested):** {res['params']['n_initial_total']}"
+            )
+            st.markdown(f"**K target kept:** {res['params']['k_keep']}")
+        with col3:
+            st.markdown(f"**Number of mutated prompts:** {res['params']['n_mutations']}")
+            st.markdown(f"**Horizon:** {horizon}")
 
-    # Table des prompts (seed + mutations)
-    st.subheader("Prompts (seed + mutations) and resolution hints")
+        st.markdown("**Seed preview:**")
+        st.caption(seed[:250] + ("..." if len(seed) > 250 else ""))
 
-    if prompt_entries:
-        df_prompts = pd.DataFrame(prompt_entries)
-        df_prompts_view = df_prompts.copy()
-
-        # joindre les sources pour affichage
-        df_prompts_view["sources_joined"] = df_prompts_view["sources"].apply(
-            lambda lst: "; ".join(lst) if isinstance(lst, list) else str(lst)
-        )
-
-        df_prompts_view = df_prompts_view[
-            [
-                "prompt_id",
-                "kind",
-                "focus",
-                "rationale",
-                "text",
-                "sources_joined",
+        st.subheader("Prompts (seed + mutations) and resolution hints")
+        if prompt_entries:
+            df_prompts = pd.DataFrame(prompt_entries)
+            df_prompts_view = df_prompts.copy()
+            df_prompts_view["sources_joined"] = df_prompts_view["sources"].apply(
+                lambda lst: "; ".join(lst) if isinstance(lst, list) else str(lst)
+            )
+            df_prompts_view = df_prompts_view[
+                [
+                    "prompt_id",
+                    "kind",
+                    "focus",
+                    "rationale",
+                    "text",
+                    "sources_joined",
+                ]
             ]
-        ]
-
-        st.caption(
-            "Root seed (p0) and mutated prompts (p1, p2, ...) with associated public resolution sources."
-        )
-        st.dataframe(df_prompts_view, use_container_width=True)
-    else:
-        st.info("No prompts recorded.")
-
-    # Table initiale des questions
-    st.subheader("Proto-questions (generation 0, across all prompts)")
-
-    df_init = pd.DataFrame(initial_entries)
-    df_init_for_download = None
-
-    if not df_init.empty:
-        df_init_view = df_init[
-            [
-                "id",
-                "parent_prompt_id",
-                "keep_final",
-                "judge_keep",
-                "judge_resolvability",
-                "judge_info",
-                "judge_decision_impact",
-                "judge_voi",
-                "judge_minutes_to_resolve",
-                "title",
-                "question",
-                "candidate_source",
-                "angle",
-                "judge_rationale",
-            ]
-        ].copy()
-
-        st.caption(
-            "All generation-0 proto-questions with strict judge scores "
-            "(resolvability, info, decision impact, VOI, minutes_to_resolve) "
-            "and final selection flag (keep_final)."
-        )
-        st.dataframe(df_init_view, use_container_width=True)
-
-        # Align export columns with the user-facing table order
-        df_init_for_download = df_init_view.copy()
-        df_init_for_download["seed"] = seed
-        df_init_for_download["domain_tags"] = ", ".join(tags)
-        df_init_for_download["resolution_horizon"] = horizon
-    else:
-        st.info("No proto-questions available.")
-
-    # Critères de résolution initiaux (sources explicites)
-    st.subheader("Initial resolution criteria & sources")
-    if df_init.empty:
-        st.caption("No proto-questions to show resolution criteria for.")
-    else:
-        prompt_sources_map = {
-            pe.get("prompt_id"): pe.get("sources", []) for pe in prompt_entries
-        }
-
-        for _, row in df_init.iterrows():
-            with st.container():
-                st.markdown(f"**{row['id']}** – *{row['title']}*")
-                st.markdown(row["question"])
-                with st.expander("Resolution criteria & explicit sources", expanded=False):
-                    srcs = prompt_sources_map.get(row["parent_prompt_id"], [])
-                    src_block = "\n".join(f"- {s}" for s in srcs) or "- (no sources returned)"
-                    st.markdown(
-                        f"- **Resolvability:** {row['judge_resolvability']}/5  \n"
-                        f"- **Information value:** {row['judge_info']}/5  \n"
-                        f"- **Decision impact:** {row['judge_decision_impact']:.2f}  \n"
-                        f"- **VOI:** {row['judge_voi']:.2f}  \n"
-                        f"- **Minutes to resolve:** {row['judge_minutes_to_resolve']:.1f}  \n"
-                        f"- **Rationale:** {row['judge_rationale']}  \n"
-                        f"- **Candidate source (generator hint):** {row['candidate_source']}  \n"
-                        f"- **Sources to use for resolution:**\n{src_block}"
-                    )
-
-    # Debug / raw outputs
-    with st.expander("Debug: raw model outputs"):
-        st.markdown("**Raw prompt mutation output (JSON):**")
-        raw_mut = res.get("raw_prompt_mutation_output") or ""
-        if raw_mut:
-            st.code(raw_mut, language="json")
+            st.caption(
+                "Root seed (p0) and mutated prompts (p1, p2, ...) with associated public resolution sources."
+            )
+            st.dataframe(df_prompts_view, use_container_width=True)
         else:
-            st.caption("No stored raw prompt mutation output (dry_run or mock).")
+            st.info("No prompts recorded.")
 
-        st.markdown("**Raw source finder outputs (per prompt, JSON):**")
-        raw_src_dict = res.get("raw_source_finder_outputs") or {}
-        if raw_src_dict:
-            for pid, raw_src in raw_src_dict.items():
-                if not raw_src:
-                    continue
-                st.markdown(f"*Prompt {pid}*")
-                st.code(raw_src, language="json")
-        else:
-            st.caption("No stored raw source finder output (dry_run or mock).")
+        st.subheader("Proto-questions (generation 0, across all prompts)")
+        df_init = pd.DataFrame(initial_entries)
+        df_init_for_download = None
 
-        st.markdown("**Raw generation output (all prompts):**")
-        raw_gen = res.get("raw_generation_output") or ""
-        if raw_gen:
-            st.code(raw_gen, language="text")
-        else:
-            st.caption("No stored raw generation output (dry_run or mock).")
-
-        st.markdown("**Judge raw lines (keep=...; ...):**")
         if not df_init.empty:
-            lines = df_init[["id", "judge_raw_line"]].to_dict(orient="records")
-            for row in lines:
-                st.code(f"{row['id']}: {row['judge_raw_line']}", language="text")
+            df_init_view = df_init[
+                [
+                    "id",
+                    "parent_prompt_id",
+                    "keep_final",
+                    "judge_keep",
+                    "judge_resolvability",
+                    "judge_info",
+                    "judge_decision_impact",
+                    "judge_voi",
+                    "judge_minutes_to_resolve",
+                    "title",
+                    "question",
+                    "candidate_source",
+                    "angle",
+                    "rating",
+                    "rating_rationale",
+                    "judge_rationale",
+                ]
+            ].copy()
+
+            st.caption(
+                "All generation-0 proto-questions with strict judge scores "
+                "(resolvability, info, decision impact, VOI, minutes_to_resolve) "
+                "and final selection flag (keep_final)."
+            )
+            st.dataframe(df_init_view, use_container_width=True)
+
+            df_init_for_download = df_init_view.copy()
+            df_init_for_download["seed"] = seed
+            df_init_for_download["domain_tags"] = ", ".join(tags)
+            df_init_for_download["resolution_horizon"] = horizon
         else:
-            st.caption("No judge lines available.")
+            st.info("No proto-questions available.")
 
-    # Download CSV
-    st.subheader("Download CSV")
+        st.subheader("Initial resolution criteria & sources")
+        if df_init.empty:
+            st.caption("No proto-questions to show resolution criteria for.")
+        else:
+            prompt_sources_map = {
+                pe.get("prompt_id"): pe.get("sources", []) for pe in prompt_entries
+            }
 
-    if df_init.empty or df_init_for_download is None:
-        st.caption("No proto-questions available for download.")
-    else:
-        csv_bytes = df_init_for_download.to_csv(index=False).encode("utf-8")
+            for _, row in df_init.iterrows():
+                with st.container():
+                    st.markdown(f"**{row['id']}** – *{row['title']}*")
+                    st.markdown(row["question"])
+                    with st.expander("Resolution criteria & explicit sources", expanded=False):
+                        srcs = prompt_sources_map.get(row["parent_prompt_id"], [])
+                        src_block = "\n".join(f"- {s}" for s in srcs) or "- (no sources returned)"
+                        st.markdown(
+                            f"- **Resolvability:** {row['judge_resolvability']}/5  \n"
+                            f"- **Information value:** {row['judge_info']}/5  \n"
+                            f"- **Decision impact:** {row['judge_decision_impact']:.2f}  \n"
+                            f"- **VOI:** {row['judge_voi']:.2f}  \n"
+                            f"- **Minutes to resolve:** {row['judge_minutes_to_resolve']:.1f}  \n"
+                            f"- **Rationale:** {row['judge_rationale']}  \n"
+                            f"- **Candidate source (generator hint):** {row['candidate_source']}  \n"
+                            f"- **Sources to use for resolution:**\n{src_block}"
+                        )
 
-        st.download_button(
-            "Download proto-questions (CSV)",
-            data=csv_bytes,
-            file_name="metaculus_proto_questions.csv",
-            mime="text/csv",
-        )
+        with st.expander("Debug: raw model outputs"):
+            st.markdown("**Raw prompt mutation output (JSON):**")
+            raw_mut = res.get("raw_prompt_mutation_output") or ""
+            if raw_mut:
+                st.code(raw_mut, language="json")
+            else:
+                st.caption("No stored raw prompt mutation output (dry_run or mock).")
 
-    # ---------------------- Chat simple avec questions conservées ----------------------
-    st.subheader("Chat de suivi (GPT‑5 avec questions conservées)")
+            st.markdown("**Raw source finder outputs (per prompt, JSON):**")
+            raw_src_dict = res.get("raw_source_finder_outputs") or {}
+            if raw_src_dict:
+                for pid, raw_src in raw_src_dict.items():
+                    if not raw_src:
+                        continue
+                    st.markdown(f"*Prompt {pid}*")
+                    st.code(raw_src, language="json")
+            else:
+                st.caption("No stored raw source finder output (dry_run or mock).")
 
-    kept_questions = [e for e in initial_entries if e.get("keep_final")]
-    if kept_questions:
-        with st.expander("Questions conservées (keep_final = True)", expanded=False):
-            for e in kept_questions:
-                st.markdown(
-                    f"- **{e['id']}** – {e['title']}\n\n"
-                    f"  {e['question']}"
-                )
-    else:
-        st.info(
-            "Aucune question n'est marquée keep_final. Le chat fonctionnera quand même, "
-            "mais sans contexte joint."
-        )
+            st.markdown("**Raw generation output (all prompts):**")
+            raw_gen = res.get("raw_generation_output") or ""
+            if raw_gen:
+                st.code(raw_gen, language="text")
+            else:
+                st.caption("No stored raw generation output (dry_run or mock).")
 
-    chat_system_prompt = f"""
+            st.markdown("**Judge raw lines (keep=...; ...):**")
+            if not df_init.empty:
+                lines = df_init[["id", "judge_raw_line"]].to_dict(orient="records")
+                for row in lines:
+                    st.code(f"{row['id']}: {row['judge_raw_line']}", language="text")
+            else:
+                st.caption("No judge lines available.")
+
+        st.subheader("Download CSV")
+        if df_init.empty or df_init_for_download is None:
+            st.caption("No proto-questions available for download.")
+        else:
+            csv_bytes = df_init_for_download.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "Download proto-questions (CSV)",
+                data=csv_bytes,
+                file_name="metaculus_proto_questions.csv",
+                mime="text/csv",
+            )
+
+        st.subheader("Chat de suivi (GPT‑5 avec questions conservées)")
+        kept_questions = [e for e in initial_entries if e.get("keep_final")]
+        if kept_questions:
+            with st.expander("Questions conservées (keep_final = True)", expanded=False):
+                for e in kept_questions:
+                    st.markdown(
+                        f"- **{e['id']}** – {e['title']}\n\n"
+                        f"  {e['question']}"
+                    )
+        else:
+            st.info(
+                "Aucune question n'est marquée keep_final. Le chat fonctionnera quand même, "
+                "mais sans contexte joint."
+            )
+
+        chat_system_prompt = f"""
 You are a fresh GPT-5.1 chat instance dedicated to quick follow-up with the user.
 Always answer in plain text (no JSON, no markdown code blocks).
 
@@ -602,50 +602,108 @@ Static context (do not repeat unless the user asks):
 {chr(10).join([f"  • {e['id']} – {e['title']} – {e['question']}" for e in kept_questions]) if kept_questions else '  • None'}
 """.strip()
 
-    if "refine_chat_history" not in st.session_state:
-        st.session_state["refine_chat_history"] = []
+        if "refine_chat_history" not in st.session_state:
+            st.session_state["refine_chat_history"] = []
 
-    for msg in st.session_state["refine_chat_history"]:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        for msg in st.session_state["refine_chat_history"]:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
 
-    user_input = st.chat_input("Écrivez un message pour discuter des questions conservées.")
+        user_input = st.chat_input("Écrivez un message pour discuter des questions conservées.")
 
-    if user_input:
-        st.session_state["refine_chat_history"].append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
-
-        or_messages: List[Dict[str, str]] = [{"role": "system", "content": chat_system_prompt}]
-        or_messages.extend(st.session_state["refine_chat_history"])
-
-        if dry_run:
-            assistant_reply = (
-                "Mode dry-run : je simulerais ici une réponse basée sur vos questions "
-                "conservées et votre message."
+        if user_input:
+            st.session_state["refine_chat_history"].append(
+                {"role": "user", "content": user_input}
             )
-        elif not get_openrouter_key():
-            assistant_reply = (
-                "Aucune clé OPENROUTER_API_KEY n'est configurée. Ajoutez-la dans le "
-                "panneau latéral ou activez le mode dry_run."
+            with st.chat_message("user"):
+                st.markdown(user_input)
+
+            or_messages: List[Dict[str, str]] = [
+                {"role": "system", "content": chat_system_prompt}
+            ]
+            or_messages.extend(st.session_state["refine_chat_history"])
+
+            if dry_run:
+                assistant_reply = (
+                    "Mode dry-run : je simulerais ici une réponse basée sur vos questions "
+                    "conservées et votre message."
+                )
+            elif not get_openrouter_key():
+                assistant_reply = (
+                    "Aucune clé OPENROUTER_API_KEY n'est configurée. Ajoutez-la dans le "
+                    "panneau latéral ou activez le mode dry_run."
+                )
+            else:
+                try:
+                    raw_reply = call_openrouter_raw(
+                        messages=or_messages,
+                        model="openai/gpt-5.1",
+                        max_tokens=1200,
+                        temperature=0.5,
+                    )
+                    assistant_reply = raw_reply.strip()
+                except Exception as e:
+                    assistant_reply = f"Erreur lors de l'appel du chatbot : {e}"
+
+            with st.chat_message("assistant"):
+                st.markdown(assistant_reply)
+
+            st.session_state["refine_chat_history"].append(
+                {"role": "assistant", "content": assistant_reply}
+            )
+
+    with tab_cards:
+        st.subheader("Fiches de résolution générées pour les questions conservées")
+        kept_questions = [e for e in initial_entries if e.get("keep_final")]
+
+        if not kept_questions:
+            st.info(
+                "Aucune question n'est marquée keep_final. Lancez une génération puis revenez ici pour créer les fiches."
             )
         else:
-            try:
-                raw_reply = call_openrouter_raw(
-                    messages=or_messages,
-                    model="openai/gpt-5.1",
-                    max_tokens=1200,
-                    temperature=0.5,
-                )
-                assistant_reply = raw_reply.strip()
-            except Exception as e:
-                assistant_reply = f"Erreur lors de l'appel du chatbot : {e}"
+            options = {f"{e['id']} – {e['title']}": e for e in kept_questions}
+            selected_label = st.selectbox(
+                "Choisissez une question conservée",
+                list(options.keys()),
+            )
+            selected_entry = options[selected_label]
 
-        with st.chat_message("assistant"):
-            st.markdown(assistant_reply)
+            st.markdown(f"**Question complète ({selected_entry['id']}):**")
+            st.markdown(selected_entry["question"])
+            st.caption(
+                f"Sources candidates pour résolution: {selected_entry.get('candidate_source', '(non fourni)')}"
+            )
 
-        st.session_state["refine_chat_history"].append({"role": "assistant", "content": assistant_reply})
+            generate_btn = st.button("Générer / régénérer la fiche de résolution")
+            if generate_btn:
+                if dry_run or get_openrouter_key():
+                    with st.spinner("Génération de la fiche de résolution en cours..."):
+                        try:
+                            card_res = generate_resolution_card(
+                                question_entry=selected_entry,
+                                seed=seed,
+                                tags=tags,
+                                horizon=horizon,
+                                model=main_model,
+                                dry_run=dry_run,
+                            )
+                            st.session_state["resolution_cards"][
+                                selected_entry["id"]
+                            ] = card_res
+                        except Exception as e:
+                            st.error(f"Erreur lors de la génération de la fiche: {e}")
+                else:
+                    st.error(
+                        "Aucune clé OPENROUTER_API_KEY n'est configurée. Ajoutez-la dans le panneau latéral ou activez le mode dry_run."
+                    )
 
+            card_store = st.session_state.get("resolution_cards", {})
+            existing_card = card_store.get(selected_entry["id"])
+            if existing_card:
+                st.markdown("**Fiche de résolution prête à copier-coller :**")
+                st.markdown(existing_card.get("card", "(vide)") or "(vide)")
+            else:
+                st.caption("Aucune fiche générée pour cette question pour le moment.")
 else:
     st.info(
         "Configure the number of mutated prompts, total N questions, K kept, "

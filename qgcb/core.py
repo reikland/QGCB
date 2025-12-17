@@ -42,6 +42,8 @@ class ProtoQuestion(BaseModel):
     title: str
     question: str
     candidate_source: str = Field(default="", alias="candidate_source")
+    rating: str = ""
+    rating_rationale: str = ""
 
 
 class JudgeKeepResult(BaseModel):
