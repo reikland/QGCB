@@ -172,6 +172,9 @@ def find_resolution_sources_for_prompt(
     if not sources:
         sources = ["Generic public statistics and major news wires (fallback)."]
 
+    # Keep the list focused and aligned with the generator expectation of two to three concrete sources
+    sources = sources[:3]
+
     return {
         "sources": sources,
         "raw_output": raw_output,
