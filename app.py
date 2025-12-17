@@ -23,6 +23,11 @@ from qgcb import (
 # 6. STREAMLIT UI
 # ============================================================
 
+if "evo_result" not in st.session_state:
+    st.session_state["evo_result"] = None
+if "resolution_cards" not in st.session_state:
+    st.session_state["resolution_cards"] = {}
+
 st.set_page_config(
     page_title="Metaculus – Evolutionary Proto Question Generator",
     page_icon="🧬",
@@ -455,6 +460,42 @@ if res is not None:
                     "text",
                     "sources_joined",
                 ]
+
+    with tab_overview:
+        st.subheader("Run summary")
+        st.caption(
+            "Root seed (p0) and mutated prompts (p1, p2, ...) with associated public resolution sources."
+        )
+
+        if prompt_entries:
+            st.dataframe(df_prompts_view, use_container_width=True)
+        else:
+            st.info("No prompts recorded.")
+
+    # Table initiale des questions
+    st.subheader("Proto-questions (generation 0, across all prompts)")
+
+    df_init = pd.DataFrame(initial_entries)
+    df_init_for_download = None
+
+    if not df_init.empty:
+        df_init_view = df_init[
+                "id",
+                "parent_prompt_id",
+                "keep_final",
+                "judge_keep",
+                "judge_resolvability",
+                "judge_info",
+                "judge_decision_impact",
+                "judge_voi",
+                "judge_minutes_to_resolve",
+                "title",
+                "question",
+                "candidate_source",
+                "angle",
+                "rating",
+                "rating_rationale",
+                "judge_rationale",
             ]
             st.caption(
                 "Root seed (p0) and mutated prompts (p1, p2, ...) with associated public resolution sources."

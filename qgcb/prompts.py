@@ -156,6 +156,7 @@ Title: <short title, <= 100 characters, single line>
 Question: Title: <repeat title here>
   Resolution Criteria: <explicit, time-bounded, testable resolution event; include exact formulae and baselines>
   Fine Print: <short sentences (no bullet points) covering exclusions, boundary behaviour, delayed/non-announced events, and a single authoritative resolution source with a named backup>
+  Fine Print: <bullet-style clarifications on exclusions, boundary behaviour, fallback sources, what happens if data are missing/delayed>
   Rating: <Publishable | Soft Reject | Hard Reject>
   Rationale: <2–4 sentences, objective justification for the rating>
 Angle: <short phrase capturing the angle within the cluster>
