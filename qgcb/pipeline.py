@@ -90,7 +90,7 @@ def mutate_seed_prompt(
         system_prompt=PROMPT_MUTATOR_SYS,
         user_prompt=user_prompt,
         model=model,
-        schema_hint='{"mutations":[{"prompt": string, "focus": string, "rationale": string}]}',
+        schema_hint='{"mutations":[{"prompt":"string","focus":"string","rationale":"string"}]}',
         max_tokens=1500,
         temperature=0.4,
     )
@@ -152,7 +152,7 @@ def find_resolution_sources_for_prompt(
         system_prompt=SOURCE_SYS,
         user_prompt=user_prompt,
         model=model,
-        schema_hint='{"sources":[string, ...]}',
+        schema_hint='{"sources":["string", "string"]}',
         max_tokens=1200,
         temperature=0.2,
     )
