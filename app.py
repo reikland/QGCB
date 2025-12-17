@@ -420,13 +420,14 @@ if res is not None:
 
     with tab_overview:
         st.subheader("Run summary")
-
         st.caption(
             "Root seed (p0) and mutated prompts (p1, p2, ...) with associated public resolution sources."
         )
-        st.dataframe(df_prompts_view, use_container_width=True)
-    else:
-        st.info("No prompts recorded.")
+
+        if prompt_entries:
+            st.dataframe(df_prompts_view, use_container_width=True)
+        else:
+            st.info("No prompts recorded.")
 
     # Table initiale des questions
     st.subheader("Proto-questions (generation 0, across all prompts)")
