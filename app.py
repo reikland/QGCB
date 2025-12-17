@@ -436,7 +436,7 @@ if res is not None:
     df_init_for_download = None
 
     if not df_init.empty:
-        df_init_view = df_init[
+        df_init_view = df_init
             [
                 "id",
                 "parent_prompt_id",
