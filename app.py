@@ -421,40 +421,38 @@ if res is not None:
     with tab_overview:
         st.subheader("Run summary")
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.markdown(
-                f"**Main model (mutations + sources + generation):** `{main_model}`"
-            )
-            st.markdown(f"**Judge model (strict resolvability):** `{judge_model}`")
-        with col2:
-            st.markdown(
-                f"**Total N proto-questions (requested):** {res['params']['n_initial_total']}"
-            )
-            st.markdown(f"**K target kept:** {res['params']['k_keep']}")
-        with col3:
-            st.markdown(f"**Number of mutated prompts:** {res['params']['n_mutations']}")
-            st.markdown(f"**Horizon:** {horizon}")
+        st.caption(
+            "Root seed (p0) and mutated prompts (p1, p2, ...) with associated public resolution sources."
+        )
+        st.dataframe(df_prompts_view, use_container_width=True)
+    else:
+        st.info("No prompts recorded.")
 
-        st.markdown("**Seed preview:**")
-        st.caption(seed[:250] + ("..." if len(seed) > 250 else ""))
+    # Table initiale des questions
+    st.subheader("Proto-questions (generation 0, across all prompts)")
 
-        st.subheader("Prompts (seed + mutations) and resolution hints")
-        if prompt_entries:
-            df_prompts = pd.DataFrame(prompt_entries)
-            df_prompts_view = df_prompts.copy()
-            df_prompts_view["sources_joined"] = df_prompts_view["sources"].apply(
-                lambda lst: "; ".join(lst) if isinstance(lst, list) else str(lst)
-            )
-            df_prompts_view = df_prompts_view[
-                [
-                    "prompt_id",
-                    "kind",
-                    "focus",
-                    "rationale",
-                    "text",
-                    "sources_joined",
-                ]
+    df_init = pd.DataFrame(initial_entries)
+    df_init_for_download = None
+
+    if not df_init.empty:
+        df_init_view = df_init[
+            [
+                "id",
+                "parent_prompt_id",
+                "keep_final",
+                "judge_keep",
+                "judge_resolvability",
+                "judge_info",
+                "judge_decision_impact",
+                "judge_voi",
+                "judge_minutes_to_resolve",
+                "title",
+                "question",
+                "candidate_source",
+                "angle",
+                "rating",
+                "rating_rationale",
+                "judge_rationale",
             ]
             st.caption(
                 "Root seed (p0) and mutated prompts (p1, p2, ...) with associated public resolution sources."
