@@ -34,6 +34,11 @@ st.set_page_config(
     layout="wide",
 )
 
+if "evo_result" not in st.session_state:
+    st.session_state["evo_result"] = None
+if "resolution_cards" not in st.session_state:
+    st.session_state["resolution_cards"] = {}
+
 st.title("Metaculus – Evolutionary Proto Question Generator")
 
 st.markdown(
@@ -417,6 +422,44 @@ if res is not None:
     tab_overview, tab_cards = st.tabs(
         ["Synthèse & questions", "Fiches de résolution (questions conservées)"]
     )
+
+    with tab_overview:
+        st.subheader("Run summary")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(
+                f"**Main model (mutations + sources + generation):** `{main_model}`"
+            )
+            st.markdown(f"**Judge model (strict resolvability):** `{judge_model}`")
+        with col2:
+            st.markdown(
+                f"**Total N proto-questions (requested):** {res['params']['n_initial_total']}"
+            )
+            st.markdown(f"**K target kept:** {res['params']['k_keep']}")
+        with col3:
+            st.markdown(f"**Number of mutated prompts:** {res['params']['n_mutations']}")
+            st.markdown(f"**Horizon:** {horizon}")
+
+        st.markdown("**Seed preview:**")
+        st.caption(seed[:250] + ("..." if len(seed) > 250 else ""))
+
+        st.subheader("Prompts (seed + mutations) and resolution hints")
+        if prompt_entries:
+            df_prompts = pd.DataFrame(prompt_entries)
+            df_prompts_view = df_prompts.copy()
+            df_prompts_view["sources_joined"] = df_prompts_view["sources"].apply(
+                lambda lst: "; ".join(lst) if isinstance(lst, list) else str(lst)
+            )
+            df_prompts_view = df_prompts_view[
+                [
+                    "prompt_id",
+                    "kind",
+                    "focus",
+                    "rationale",
+                    "text",
+                    "sources_joined",
+                ]
 
     with tab_overview:
         st.subheader("Run summary")
