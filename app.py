@@ -1,7 +1,5 @@
-from __future__ import annotations
-
+from typing import Any, Dict, List
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import streamlit as st
@@ -22,8 +20,13 @@ from qgcb import (
 )
 
 # ============================================================
-# Streamlit config (must be the first Streamlit call)
+# 6. STREAMLIT UI
 # ============================================================
+
+if "evo_result" not in st.session_state:
+    st.session_state["evo_result"] = None
+if "resolution_cards" not in st.session_state:
+    st.session_state["resolution_cards"] = {}
 
 st.set_page_config(
     page_title="Metaculus – Evolutionary Proto Question Generator",
@@ -31,18 +34,10 @@ st.set_page_config(
     layout="wide",
 )
 
-# ============================================================
-# Session state
-# ============================================================
-
-st.session_state.setdefault("evo_result", None)
-st.session_state.setdefault("resolution_cards", {})
-st.session_state.setdefault("refine_chat_history", [])
-st.session_state.setdefault("OPENROUTER_API_KEY_OVERRIDE", None)
-
-# ============================================================
-# UI header
-# ============================================================
+if "evo_result" not in st.session_state:
+    st.session_state["evo_result"] = None
+if "resolution_cards" not in st.session_state:
+    st.session_state["resolution_cards"] = {}
 
 st.title("Metaculus – Evolutionary Proto Question Generator")
 
@@ -62,68 +57,7 @@ is built on the Python side only.
 """
 )
 
-# ============================================================
-# Helpers
-# ============================================================
-
-
-def _parse_tags(tags_str: str) -> List[str]:
-    return [t.strip() for t in (tags_str or "").split(",") if t.strip()]
-
-
-def _build_prompts(seed: str, mutations: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """Return prompt_entries = seed (p0) + mutations (p1..)."""
-    prompt_entries: List[Dict[str, Any]] = [
-        {
-            "prompt_id": "p0",
-            "kind": "seed",
-            "text": seed.strip(),
-            "focus": "root seed",
-            "rationale": "Original seed prompt.",
-            "sources": [],
-            "sources_raw": "",
-        }
-    ]
-    for i, m in enumerate(mutations or [], start=1):
-        prompt_entries.append(
-            {
-                "prompt_id": f"p{i}",
-                "kind": "mutation",
-                "text": (m.get("text") or "").strip(),
-                "focus": (m.get("focus") or "").strip(),
-                "rationale": (m.get("rationale") or "").strip(),
-                "sources": [],
-                "sources_raw": "",
-            }
-        )
-    # Filter out empty mutation texts (common failure mode with some models)
-    prompt_entries = [pe for pe in prompt_entries if pe.get("text")]
-    return prompt_entries
-
-
-def _allocate_questions(n_total: int, n_prompts: int) -> List[int]:
-    """Allocate n_total across n_prompts as evenly as possible, deterministic."""
-    if n_prompts <= 0:
-        return []
-    base = n_total // n_prompts
-    rem = n_total % n_prompts
-    return [base + (1 if i < rem else 0) for i in range(n_prompts)]
-
-
-def _safe_float(x: Any, default: float = 0.0) -> float:
-    try:
-        return float(x)
-    except Exception:
-        return default
-
-
-def _iso_utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-# ============================================================
-# Sidebar
-# ============================================================
+# ---------------------- Sidebar ----------------------
 
 with st.sidebar:
     st.header("OpenRouter configuration")
@@ -182,16 +116,13 @@ with st.sidebar:
     )
 
 current_key = get_openrouter_key()
-
 if not current_key and not dry_run:
     st.warning(
         "No OPENROUTER_API_KEY detected. Enter it in the sidebar, "
         "or enable dry_run mode for local testing."
     )
 
-# ============================================================
-# Main inputs
-# ============================================================
+# ---------------------- Main inputs ----------------------
 
 st.subheader("Seed prompt")
 
@@ -205,27 +136,27 @@ seed = st.text_area(
     ),
 )
 
-tags_str = st.text_input("Domain tags (comma-separated)", value="ai,policy,macro")
+tags_str = st.text_input(
+    "Domain tags (comma-separated)",
+    value="ai,policy,macro",
+)
 
-horizon = st.text_input("Horizon / rough timeline", value="resolve by 2040-12-31 UTC")
+horizon = st.text_input(
+    "Horizon / rough timeline",
+    value="resolve by 2040-12-31 UTC",
+)
 
 run_button = st.button("Run full pipeline (PROMPTS → SOURCES → QUESTIONS)")
 
-# ============================================================
-# Run pipeline
-# ============================================================
+# ---------------------- Run pipeline ----------------------
 
 if run_button:
-    seed_clean = (seed or "").strip()
-    if not seed_clean:
+    if not seed.strip():
         st.warning("Please provide a seed prompt.")
     elif not dry_run and not current_key:
         st.error("No OPENROUTER_API_KEY set and dry_run is disabled.")
     else:
-        # Reset chat history for a new run (avoids mixing runs)
-        st.session_state["refine_chat_history"] = []
-
-        tags = _parse_tags(tags_str)
+        tags = [t.strip() for t in tags_str.split(",") if t.strip()]
         main_model = (main_model_input or "").strip() or DEFAULT_MAIN_MODEL
         judge_model = (judge_model_input or "").strip() or DEFAULT_JUDGE_MODEL
 
@@ -234,11 +165,11 @@ if run_button:
             f"Using judge model (strict resolvability): `{judge_model}`"
         )
 
-        # Step 1/3: prompt mutations
+        # A) Mutations de prompt
         with st.spinner("Step 1/3 – Mutating seed prompt into more concrete prompts..."):
             try:
                 mut_res = mutate_seed_prompt(
-                    seed=seed_clean,
+                    seed=seed,
                     tags=tags,
                     horizon=horizon,
                     m=n_mutations,
@@ -249,63 +180,83 @@ if run_button:
                 st.error(f"Prompt mutation error: {e}")
                 mut_res = None
 
-        if not mut_res:
+        if mut_res is None:
             st.session_state["evo_result"] = None
         else:
-            mutations = mut_res.get("mutations", []) or []
-            raw_mut_output = mut_res.get("raw_output", "") or ""
+            mutations = mut_res.get("mutations", [])
+            raw_mut_output = mut_res.get("raw_output", "")
 
-            prompt_entries = _build_prompts(seed_clean, mutations)
-            if not prompt_entries:
-                st.error("No prompts available (seed + mutations).")
-                st.session_state["evo_result"] = None
-            else:
-                # Step 2/3: source families per prompt
-                with st.spinner(
-                    "Step 2/3 – Finding concrete resolution sources for each prompt..."
-                ):
-                    for pe in prompt_entries:
-                        try:
-                            src_res = find_resolution_sources_for_prompt(
-                                prompt_text=pe["text"],
-                                tags=tags,
-                                horizon=horizon,
-                                model=judge_model,
-                                dry_run=dry_run,
-                            )
-                        except Exception as e:
-                            st.error(
-                                f"Source finder error for prompt {pe['prompt_id']}: {e}"
-                            )
-                            src_res = {
-                                "sources": ["(error: fallback generic sources)"],
-                                "raw_output": "",
-                            }
+            # Construire la liste de prompts (seed + mutations)
+            prompt_entries: List[Dict[str, Any]] = []
 
-                        pe["sources"] = src_res.get("sources", []) or [
-                            "(no sources returned)"
-                        ]
-                        pe["sources_raw"] = src_res.get("raw_output", "") or ""
+            # prompt 0 = seed
+            prompt_entries.append(
+                {
+                    "prompt_id": "p0",
+                    "kind": "seed",
+                    "text": seed.strip(),
+                    "focus": "root seed",
+                    "rationale": "Original seed prompt.",
+                    "sources": [],
+                    "sources_raw": "",
+                }
+            )
 
-                # Step 3/3: generate questions per prompt, then judge + select
-                generated_at = _iso_utc_now()
+            for i, m in enumerate(mutations, start=1):
+                prompt_entries.append(
+                    {
+                        "prompt_id": f"p{i}",
+                        "kind": "mutation",
+                        "text": m.get("text", "").strip(),
+                        "focus": m.get("focus", "").strip(),
+                        "rationale": m.get("rationale", "").strip(),
+                        "sources": [],
+                        "sources_raw": "",
+                    }
+                )
 
-                with st.spinner(
-                    "Step 3/3 – Generating proto-questions across all prompts and judging them..."
-                ):
-                    allocations = _allocate_questions(n_initial, len(prompt_entries))
+            # B) Recherche de sources pour chaque prompt
+            with st.spinner("Step 2/3 – Finding concrete resolution sources for each prompt..."):
+                for pe in prompt_entries:
+                    try:
+                        src_res = find_resolution_sources_for_prompt(
+                            prompt_text=pe["text"],
+                            tags=tags,
+                            horizon=horizon,
+                            model=judge_model,
+                            dry_run=dry_run,
+                        )
+                    except Exception as e:
+                        st.error(f"Source finder error for prompt {pe['prompt_id']}: {e}")
+                        src_res = {"sources": ["(error: fallback generic sources)"], "raw_output": ""}
 
-                    all_questions: List[ProtoQuestion] = []
-                    all_prompt_ids: List[str] = []
-                    raw_gen_chunks: List[str] = []
+                    pe["sources"] = src_res.get("sources", []) or ["(no sources returned)"]
+                    pe["sources_raw"] = src_res.get("raw_output", "")
 
-                    for pe, n_for_this in zip(prompt_entries, allocations):
+            # C) Génération de questions pour l'ensemble des prompts (répartition N_total)
+            generated_at = datetime.now(timezone.utc).isoformat()
+
+            with st.spinner("Step 3/3 – Generating proto-questions across all prompts and judging them..."):
+                all_questions: List[ProtoQuestion] = []
+                all_prompt_ids: List[str] = []
+                raw_gen_chunks: List[str] = []
+
+                P = len(prompt_entries)
+                if P == 0:
+                    st.error("No prompts available (seed + mutations).")
+                    st.session_state["evo_result"] = None
+                else:
+                    base_per = n_initial // P
+                    remainder = n_initial % P
+
+                    for idx, pe in enumerate(prompt_entries):
+                        n_for_this = base_per + (1 if idx < remainder else 0)
                         if n_for_this <= 0:
                             continue
 
-                        hints_str = "\n".join(f"- {s}" for s in (pe.get("sources") or []))
+                        hints_str = "\n".join(f"- {s}" for s in pe.get("sources", []))
                         seed_for_gen = (
-                            f"ROOT SEED:\n{seed_clean}\n\n"
+                            f"ROOT SEED:\n{seed.strip()}\n\n"
                             f"PROMPT ({pe['prompt_id']} – {pe['kind']}):\n{pe['text']}\n\n"
                             f"RESOLUTION HINTS (families of PUBLIC sources you MUST stick to):\n{hints_str}"
                         )
@@ -323,7 +274,7 @@ if run_button:
                             st.error(f"Generation error for prompt {pe['prompt_id']}: {e}")
                             continue
 
-                        qs: List[ProtoQuestion] = gen_res.get("questions", []) or []
+                        qs = gen_res.get("questions", []) or []
                         raw_out = gen_res.get("raw_output", "") or ""
                         if raw_out:
                             raw_gen_chunks.append(
@@ -334,45 +285,43 @@ if run_button:
                         all_prompt_ids.extend([pe["prompt_id"]] * len(qs))
 
                     if not all_questions:
-                        st.error(
-                            "No proto-questions were parsed. Check generator prompts."
-                        )
+                        st.error("No proto-questions were parsed. Check generator prompts.")
                         st.session_state["evo_result"] = None
                     else:
+                        # Construire les contextes individuels pour le judge
                         prompt_by_id = {pe["prompt_id"]: pe for pe in prompt_entries}
-
                         judge_contexts: List[str] = []
-                        for q, p_id in zip(all_questions, all_prompt_ids):
+
+                        for q_idx, q in enumerate(all_questions):
+                            p_id = all_prompt_ids[q_idx]
                             pe = prompt_by_id.get(p_id)
                             if pe is None:
-                                judge_contexts.append(seed_clean)
-                                continue
-
-                            hints_str = "\n".join(pe.get("sources", []) or [])
-                            ctx = (
-                                f"ROOT SEED:\n{seed_clean}\n\n"
-                                f"PROMPT ({p_id} – {pe['kind']}):\n{pe['text']}\n\n"
-                                f"RESOLUTION HINTS (STRICTLY respect these families of sources):\n{hints_str}"
-                            )
+                                ctx = seed
+                            else:
+                                hints_str = "\n".join(pe.get("sources", []))
+                                ctx = (
+                                    f"ROOT SEED:\n{seed.strip()}\n\n"
+                                    f"PROMPT ({p_id} – {pe['kind']}):\n{pe['text']}\n\n"
+                                    f"RESOLUTION HINTS (STRICTLY respect these families of sources):\n{hints_str}"
+                                )
                             judge_contexts.append(ctx)
 
+                        # Judge strict (résolvabilité + info + critères sup.)
                         try:
-                            judge_res0: Optional[List[JudgeKeepResult]] = (
-                                judge_initial_questions(
-                                    questions=all_questions,
-                                    seed=seed_clean,
-                                    tags=tags,
-                                    horizon=horizon,
-                                    judge_model=judge_model,
-                                    dry_run=dry_run,
-                                    contexts=judge_contexts,
-                                )
+                            judge_res0: List[JudgeKeepResult] = judge_initial_questions(
+                                questions=all_questions,
+                                seed=seed,
+                                tags=tags,
+                                horizon=horizon,
+                                judge_model=judge_model,
+                                dry_run=dry_run,
+                                contexts=judge_contexts,
                             )
                         except Exception as e:
                             st.error(f"Judge error: {e}")
                             judge_res0 = None
 
-                        if not judge_res0:
+                        if judge_res0 is None:
                             st.session_state["evo_result"] = None
                         else:
                             selection = select_top_k(
@@ -381,59 +330,57 @@ if run_button:
                                 k=k_keep,
                             )
 
-                            final_indices = selection.get("final_indices", []) or []
-                            keep_final_flags = selection.get(
-                                "keep_final_flags", [False] * len(all_questions)
-                            )
-                            n_kept_initial = int(selection.get("n_kept_initial", 0))
-                            n_selected_final = int(selection.get("n_selected_final", 0))
+                            final_indices = selection["final_indices"]
+                            keep_final_flags = selection["keep_final_flags"]
+                            n_kept_initial = selection["n_kept_initial"]
+                            n_selected_final = selection["n_selected_final"]
 
                             st.info(
                                 f"Judge initial keep=1 count: {n_kept_initial} / {len(all_questions)}; "
                                 f"Selected (final K): {n_selected_final} (target K={k_keep})."
                             )
 
-                            # Assign stable IDs and build initial_entries
+                            # Attribuer IDs et génération
                             initial_entries: List[Dict[str, Any]] = []
+                            id_map: Dict[int, str] = {}  # index -> id
 
-                            for idx_q, (q, p_id, jr) in enumerate(
-                                zip(all_questions, all_prompt_ids, judge_res0)
-                            ):
-                                q_id = f"g0-q{idx_q + 1}"
+                            for idx_q, q in enumerate(all_questions):
+                                q_id = f"g0-q{idx_q+1}"
+                                id_map[idx_q] = q_id
+                                jr = judge_res0[idx_q]
+                                p_id = all_prompt_ids[idx_q]
                                 initial_entries.append(
                                     {
                                         "id": q_id,
                                         "generation": 0,
                                         "parent_prompt_id": p_id,
-                                        "role": getattr(q, "role", ""),
-                                        "angle": getattr(q, "angle", ""),
-                                        "title": getattr(q, "title", ""),
-                                        "question": getattr(q, "question", ""),
-                                        "candidate_source": getattr(q, "candidate_source", ""),
+                                        "role": q.role,
+                                        "angle": q.angle,
+                                        "title": q.title,
+                                        "question": q.question,
+                                        "candidate_source": q.candidate_source,
                                         "rating": getattr(q, "rating", ""),
                                         "rating_rationale": getattr(q, "rating_rationale", ""),
-                                        "judge_keep": getattr(jr, "keep", 0),
-                                        "judge_resolvability": getattr(jr, "resolvability", 0),
-                                        "judge_info": getattr(jr, "info", 0),
-                                        "judge_decision_impact": _safe_float(
-                                            getattr(jr, "decision_impact", 0.0), 0.0
-                                        ),
-                                        "judge_voi": _safe_float(getattr(jr, "voi", 0.0), 0.0),
-                                        "judge_minutes_to_resolve": _safe_float(
-                                            getattr(jr, "minutes_to_resolve", 0.0), 0.0
-                                        ),
-                                        "judge_rationale": getattr(jr, "rationale", ""),
-                                        "judge_raw_line": getattr(jr, "raw_line", ""),
-                                        "keep_final": bool(keep_final_flags[idx_q])
-                                        if idx_q < len(keep_final_flags)
-                                        else False,
+                                        "judge_keep": jr.keep,
+                                        "judge_resolvability": jr.resolvability,
+                                        "judge_info": jr.info,
+                                        "judge_decision_impact": jr.decision_impact,
+                                        "judge_voi": jr.voi,
+                                        "judge_minutes_to_resolve": jr.minutes_to_resolve,
+                                        "judge_rationale": jr.rationale,
+                                        "judge_raw_line": jr.raw_line,
+                                        "keep_final": bool(keep_final_flags[idx_q]),
                                     }
                                 )
 
                             raw_gen_output = "\n\n".join(raw_gen_chunks)
 
+                            # Construction du résultat global (en dicts, pour DataFrame + JSON)
                             res_dict = {
-                                "models": {"main": main_model, "judge": judge_model},
+                                "models": {
+                                    "main": main_model,
+                                    "judge": judge_model,
+                                },
                                 "params": {
                                     "n_initial_total": n_initial,
                                     "k_keep": k_keep,
@@ -443,212 +390,248 @@ if run_button:
                                     "generated_at_utc": generated_at,
                                     "resolution_horizon": horizon,
                                 },
-                                "seed": seed_clean,
+                                "seed": seed,
                                 "tags": tags,
                                 "horizon": horizon,
                                 "prompts": prompt_entries,
                                 "initial": initial_entries,
-                                "expanded": [],  # reserved for future compatibility
+                                "expanded": [],  # plus utilisé, conservé pour compat éventuelle
                                 "raw_prompt_mutation_output": raw_mut_output,
                                 "raw_source_finder_outputs": {
-                                    pe["prompt_id"]: pe.get("sources_raw", "")
-                                    for pe in prompt_entries
+                                    pe["prompt_id"]: pe.get("sources_raw", "") for pe in prompt_entries
                                 },
                                 "raw_generation_output": raw_gen_output,
                                 "raw_expansion_output": "",
-                                "selection": {
-                                    "final_indices": final_indices,
-                                    "n_kept_initial": n_kept_initial,
-                                    "n_selected_final": n_selected_final,
-                                },
                             }
 
                             st.session_state["evo_result"] = res_dict
 
-# ============================================================
-# Display results
-# ============================================================
+# ---------------------- Display results ----------------------
 
 res = st.session_state.get("evo_result")
 
-if not res:
-    st.info(
-        "Configure the number of mutated prompts, total N questions, K kept, "
-        "set your seed, then click the button to run the pipeline."
+if res is not None:
+    main_model = res["models"]["main"]
+    judge_model = res["models"]["judge"]
+    seed = res["seed"]
+    tags = res["tags"]
+    horizon = res["horizon"]
+    prompt_entries = res.get("prompts", [])
+    initial_entries = res["initial"]
+
+    tab_overview, tab_cards = st.tabs(
+        ["Synthèse & questions", "Fiches de résolution (questions conservées)"]
     )
-    st.stop()
 
-main_model = res["models"]["main"]
-judge_model = res["models"]["judge"]
-seed = res["seed"]
-tags = res["tags"]
-horizon = res["horizon"]
-prompt_entries = res.get("prompts", []) or []
-initial_entries = res.get("initial", []) or []
+    with tab_overview:
+        st.subheader("Run summary")
 
-tab_overview, tab_cards = st.tabs(
-    ["Synthèse & questions", "Fiches de résolution (questions conservées)"]
-)
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(
+                f"**Main model (mutations + sources + generation):** `{main_model}`"
+            )
+            st.markdown(f"**Judge model (strict resolvability):** `{judge_model}`")
+        with col2:
+            st.markdown(
+                f"**Total N proto-questions (requested):** {res['params']['n_initial_total']}"
+            )
+            st.markdown(f"**K target kept:** {res['params']['k_keep']}")
+        with col3:
+            st.markdown(f"**Number of mutated prompts:** {res['params']['n_mutations']}")
+            st.markdown(f"**Horizon:** {horizon}")
 
-# ---------------------- Tab: overview ----------------------
+        st.markdown("**Seed preview:**")
+        st.caption(seed[:250] + ("..." if len(seed) > 250 else ""))
 
-with tab_overview:
-    st.subheader("Run summary")
+        st.subheader("Prompts (seed + mutations) and resolution hints")
+        if prompt_entries:
+            df_prompts = pd.DataFrame(prompt_entries)
+            df_prompts_view = df_prompts.copy()
+            df_prompts_view["sources_joined"] = df_prompts_view["sources"].apply(
+                lambda lst: "; ".join(lst) if isinstance(lst, list) else str(lst)
+            )
+            df_prompts_view = df_prompts_view[
+                [
+                    "prompt_id",
+                    "kind",
+                    "focus",
+                    "rationale",
+                    "text",
+                    "sources_joined",
+                ]
 
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(f"**Main model (mutations + sources + generation):** `{main_model}`")
-        st.markdown(f"**Judge model (strict resolvability):** `{judge_model}`")
-    with col2:
-        st.markdown(
-            f"**Total N proto-questions (requested):** {res['params']['n_initial_total']}"
-        )
-        st.markdown(f"**K target kept:** {res['params']['k_keep']}")
-    with col3:
-        st.markdown(f"**Number of mutated prompts:** {res['params']['n_mutations']}")
-        st.markdown(f"**Horizon:** {horizon}")
-
-    st.markdown("**Seed preview:**")
-    st.caption(seed[:250] + ("..." if len(seed) > 250 else ""))
-
-    st.subheader("Prompts (seed + mutations) and resolution hints")
-    df_prompts_view = pd.DataFrame()
-    if prompt_entries:
-        df_prompts = pd.DataFrame(prompt_entries).copy()
-        df_prompts["sources_joined"] = df_prompts["sources"].apply(
-            lambda lst: "; ".join(lst) if isinstance(lst, list) else str(lst)
-        )
-        keep_cols = ["prompt_id", "kind", "focus", "rationale", "text", "sources_joined"]
-        df_prompts_view = df_prompts[keep_cols].copy()
+    with tab_overview:
+        st.subheader("Run summary")
         st.caption(
             "Root seed (p0) and mutated prompts (p1, p2, ...) with associated public resolution sources."
         )
-        st.dataframe(df_prompts_view, use_container_width=True)
-    else:
-        st.info("No prompts recorded.")
 
+        if prompt_entries:
+            st.dataframe(df_prompts_view, use_container_width=True)
+        else:
+            st.info("No prompts recorded.")
+
+    # Table initiale des questions
     st.subheader("Proto-questions (generation 0, across all prompts)")
+
     df_init = pd.DataFrame(initial_entries)
+    df_init_for_download = None
 
-    if df_init.empty:
-        st.info("No proto-questions available.")
-    else:
-        show_only_kept = st.checkbox("Show only keep_final questions", value=False)
+    if not df_init.empty:
+        df_init_view = df_init[
+                "id",
+                "parent_prompt_id",
+                "keep_final",
+                "judge_keep",
+                "judge_resolvability",
+                "judge_info",
+                "judge_decision_impact",
+                "judge_voi",
+                "judge_minutes_to_resolve",
+                "title",
+                "question",
+                "candidate_source",
+                "angle",
+                "rating",
+                "rating_rationale",
+                "judge_rationale",
+            ]
+            st.caption(
+                "Root seed (p0) and mutated prompts (p1, p2, ...) with associated public resolution sources."
+            )
+            st.dataframe(df_prompts_view, use_container_width=True)
+        else:
+            st.info("No prompts recorded.")
 
-        cols = [
-            "id",
-            "parent_prompt_id",
-            "keep_final",
-            "judge_keep",
-            "judge_resolvability",
-            "judge_info",
-            "judge_decision_impact",
-            "judge_voi",
-            "judge_minutes_to_resolve",
-            "title",
-            "question",
-            "candidate_source",
-            "angle",
-            "rating",
-            "rating_rationale",
-            "judge_rationale",
-        ]
-        df_init_view = df_init[cols].copy()
+        st.subheader("Proto-questions (generation 0, across all prompts)")
+        df_init = pd.DataFrame(initial_entries)
+        df_init_for_download = None
 
-        if show_only_kept:
-            df_init_view = df_init_view[df_init_view["keep_final"] == True]  # noqa: E712
+        if not df_init.empty:
+            df_init_view = df_init[
+                [
+                    "id",
+                    "parent_prompt_id",
+                    "keep_final",
+                    "judge_keep",
+                    "judge_resolvability",
+                    "judge_info",
+                    "judge_decision_impact",
+                    "judge_voi",
+                    "judge_minutes_to_resolve",
+                    "title",
+                    "question",
+                    "candidate_source",
+                    "angle",
+                    "rating",
+                    "rating_rationale",
+                    "judge_rationale",
+                ]
+            ].copy()
 
-        st.caption(
-            "Generation-0 proto-questions with strict judge scores and final selection flag (keep_final)."
-        )
-        st.dataframe(df_init_view, use_container_width=True)
+            st.caption(
+                "All generation-0 proto-questions with strict judge scores "
+                "(resolvability, info, decision impact, VOI, minutes_to_resolve) "
+                "and final selection flag (keep_final)."
+            )
+            st.dataframe(df_init_view, use_container_width=True)
 
-        # Download (always based on the current filter)
-        st.subheader("Download CSV")
-        df_for_download = df_init_view.copy()
-        df_for_download["seed"] = seed
-        df_for_download["domain_tags"] = ", ".join(tags)
-        df_for_download["resolution_horizon"] = horizon
-        csv_bytes = df_for_download.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "Download proto-questions (CSV)",
-            data=csv_bytes,
-            file_name="metaculus_proto_questions.csv",
-            mime="text/csv",
-        )
+            df_init_for_download = df_init_view.copy()
+            df_init_for_download["seed"] = seed
+            df_init_for_download["domain_tags"] = ", ".join(tags)
+            df_init_for_download["resolution_horizon"] = horizon
+        else:
+            st.info("No proto-questions available.")
 
-        # Resolution criteria block (all or kept depending on filter)
         st.subheader("Initial resolution criteria & sources")
-        prompt_sources_map = {pe.get("prompt_id"): pe.get("sources", []) for pe in prompt_entries}
+        if df_init.empty:
+            st.caption("No proto-questions to show resolution criteria for.")
+        else:
+            prompt_sources_map = {
+                pe.get("prompt_id"): pe.get("sources", []) for pe in prompt_entries
+            }
 
-        rows_iter = df_init_view.to_dict(orient="records")
-        for row in rows_iter:
-            with st.container():
-                st.markdown(f"**{row['id']}** – *{row['title']}*")
-                st.markdown(row["question"])
-                with st.expander("Resolution criteria & explicit sources", expanded=False):
-                    srcs = prompt_sources_map.get(row["parent_prompt_id"], []) or []
-                    src_block = "\n".join(f"- {s}" for s in srcs) or "- (no sources returned)"
+            for _, row in df_init.iterrows():
+                with st.container():
+                    st.markdown(f"**{row['id']}** – *{row['title']}*")
+                    st.markdown(row["question"])
+                    with st.expander("Resolution criteria & explicit sources", expanded=False):
+                        srcs = prompt_sources_map.get(row["parent_prompt_id"], [])
+                        src_block = "\n".join(f"- {s}" for s in srcs) or "- (no sources returned)"
+                        st.markdown(
+                            f"- **Resolvability:** {row['judge_resolvability']}/5  \n"
+                            f"- **Information value:** {row['judge_info']}/5  \n"
+                            f"- **Decision impact:** {row['judge_decision_impact']:.2f}  \n"
+                            f"- **VOI:** {row['judge_voi']:.2f}  \n"
+                            f"- **Minutes to resolve:** {row['judge_minutes_to_resolve']:.1f}  \n"
+                            f"- **Rationale:** {row['judge_rationale']}  \n"
+                            f"- **Candidate source (generator hint):** {row['candidate_source']}  \n"
+                            f"- **Sources to use for resolution:**\n{src_block}"
+                        )
+
+        with st.expander("Debug: raw model outputs"):
+            st.markdown("**Raw prompt mutation output (JSON):**")
+            raw_mut = res.get("raw_prompt_mutation_output") or ""
+            if raw_mut:
+                st.code(raw_mut, language="json")
+            else:
+                st.caption("No stored raw prompt mutation output (dry_run or mock).")
+
+            st.markdown("**Raw source finder outputs (per prompt, JSON):**")
+            raw_src_dict = res.get("raw_source_finder_outputs") or {}
+            if raw_src_dict:
+                for pid, raw_src in raw_src_dict.items():
+                    if not raw_src:
+                        continue
+                    st.markdown(f"*Prompt {pid}*")
+                    st.code(raw_src, language="json")
+            else:
+                st.caption("No stored raw source finder output (dry_run or mock).")
+
+            st.markdown("**Raw generation output (all prompts):**")
+            raw_gen = res.get("raw_generation_output") or ""
+            if raw_gen:
+                st.code(raw_gen, language="text")
+            else:
+                st.caption("No stored raw generation output (dry_run or mock).")
+
+            st.markdown("**Judge raw lines (keep=...; ...):**")
+            if not df_init.empty:
+                lines = df_init[["id", "judge_raw_line"]].to_dict(orient="records")
+                for row in lines:
+                    st.code(f"{row['id']}: {row['judge_raw_line']}", language="text")
+            else:
+                st.caption("No judge lines available.")
+
+        st.subheader("Download CSV")
+        if df_init.empty or df_init_for_download is None:
+            st.caption("No proto-questions available for download.")
+        else:
+            csv_bytes = df_init_for_download.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "Download proto-questions (CSV)",
+                data=csv_bytes,
+                file_name="metaculus_proto_questions.csv",
+                mime="text/csv",
+            )
+
+        st.subheader("Chat de suivi (GPT‑5 avec questions conservées)")
+        kept_questions = [e for e in initial_entries if e.get("keep_final")]
+        if kept_questions:
+            with st.expander("Questions conservées (keep_final = True)", expanded=False):
+                for e in kept_questions:
                     st.markdown(
-                        f"- **Resolvability:** {row['judge_resolvability']}/5  \n"
-                        f"- **Information value:** {row['judge_info']}/5  \n"
-                        f"- **Decision impact:** {row['judge_decision_impact']:.2f}  \n"
-                        f"- **VOI:** {row['judge_voi']:.2f}  \n"
-                        f"- **Minutes to resolve:** {row['judge_minutes_to_resolve']:.1f}  \n"
-                        f"- **Rationale:** {row['judge_rationale']}  \n"
-                        f"- **Candidate source (generator hint):** {row['candidate_source']}  \n"
-                        f"- **Sources to use for resolution:**\n{src_block}"
+                        f"- **{e['id']}** – {e['title']}\n\n"
+                        f"  {e['question']}"
                     )
-
-    # Debug
-    with st.expander("Debug: raw model outputs"):
-        st.markdown("**Raw prompt mutation output (JSON):**")
-        raw_mut = res.get("raw_prompt_mutation_output") or ""
-        if raw_mut:
-            st.code(raw_mut, language="json")
         else:
-            st.caption("No stored raw prompt mutation output (dry_run or mock).")
+            st.info(
+                "Aucune question n'est marquée keep_final. Le chat fonctionnera quand même, "
+                "mais sans contexte joint."
+            )
 
-        st.markdown("**Raw source finder outputs (per prompt, JSON):**")
-        raw_src_dict = res.get("raw_source_finder_outputs") or {}
-        if raw_src_dict:
-            for pid, raw_src in raw_src_dict.items():
-                if not raw_src:
-                    continue
-                st.markdown(f"*Prompt {pid}*")
-                st.code(raw_src, language="json")
-        else:
-            st.caption("No stored raw source finder output (dry_run or mock).")
-
-        st.markdown("**Raw generation output (all prompts):**")
-        raw_gen = res.get("raw_generation_output") or ""
-        if raw_gen:
-            st.code(raw_gen, language="text")
-        else:
-            st.caption("No stored raw generation output (dry_run or mock).")
-
-        st.markdown("**Judge raw lines:**")
-        if not pd.DataFrame(initial_entries).empty:
-            for e in initial_entries:
-                st.code(f"{e.get('id')}: {e.get('judge_raw_line', '')}", language="text")
-        else:
-            st.caption("No judge lines available.")
-
-    # Follow-up chat (kept questions only)
-    st.subheader("Chat de suivi (GPT‑5 avec questions conservées)")
-    kept_questions = [e for e in initial_entries if e.get("keep_final")]
-
-    if kept_questions:
-        with st.expander("Questions conservées (keep_final = True)", expanded=False):
-            for e in kept_questions:
-                st.markdown(f"- **{e['id']}** – {e['title']}\n\n  {e['question']}")
-    else:
-        st.info(
-            "Aucune question n'est marquée keep_final. Le chat fonctionnera quand même, "
-            "mais sans contexte joint."
-        )
-
-    chat_system_prompt = f"""
+        chat_system_prompt = f"""
 You are a fresh GPT-5.1 chat instance dedicated to quick follow-up with the user.
 Always answer in plain text (no JSON, no markdown code blocks).
 
@@ -660,96 +643,111 @@ Static context (do not repeat unless the user asks):
 {chr(10).join([f"  • {e['id']} – {e['title']} – {e['question']}" for e in kept_questions]) if kept_questions else '  • None'}
 """.strip()
 
-    for msg in st.session_state["refine_chat_history"]:
-        with st.chat_message(msg["role"]):
-            st.markdown(msg["content"])
+        if "refine_chat_history" not in st.session_state:
+            st.session_state["refine_chat_history"] = []
 
-    user_input = st.chat_input("Écrivez un message pour discuter des questions conservées.")
+        for msg in st.session_state["refine_chat_history"]:
+            with st.chat_message(msg["role"]):
+                st.markdown(msg["content"])
 
-    if user_input:
-        st.session_state["refine_chat_history"].append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.markdown(user_input)
+        user_input = st.chat_input("Écrivez un message pour discuter des questions conservées.")
 
-        or_messages: List[Dict[str, str]] = [{"role": "system", "content": chat_system_prompt}]
-        or_messages.extend(st.session_state["refine_chat_history"])
-
-        if dry_run:
-            assistant_reply = (
-                "Mode dry-run : je simulerais ici une réponse basée sur vos questions "
-                "conservées et votre message."
+        if user_input:
+            st.session_state["refine_chat_history"].append(
+                {"role": "user", "content": user_input}
             )
-        elif not get_openrouter_key():
-            assistant_reply = (
-                "Aucune clé OPENROUTER_API_KEY n'est configurée. Ajoutez-la dans le "
-                "panneau latéral ou activez le mode dry_run."
+            with st.chat_message("user"):
+                st.markdown(user_input)
+
+            or_messages: List[Dict[str, str]] = [
+                {"role": "system", "content": chat_system_prompt}
+            ]
+            or_messages.extend(st.session_state["refine_chat_history"])
+
+            if dry_run:
+                assistant_reply = (
+                    "Mode dry-run : je simulerais ici une réponse basée sur vos questions "
+                    "conservées et votre message."
+                )
+            elif not get_openrouter_key():
+                assistant_reply = (
+                    "Aucune clé OPENROUTER_API_KEY n'est configurée. Ajoutez-la dans le "
+                    "panneau latéral ou activez le mode dry_run."
+                )
+            else:
+                try:
+                    raw_reply = call_openrouter_raw(
+                        messages=or_messages,
+                        model="openai/gpt-5.1",
+                        max_tokens=1200,
+                        temperature=0.5,
+                    )
+                    assistant_reply = raw_reply.strip()
+                except Exception as e:
+                    assistant_reply = f"Erreur lors de l'appel du chatbot : {e}"
+
+            with st.chat_message("assistant"):
+                st.markdown(assistant_reply)
+
+            st.session_state["refine_chat_history"].append(
+                {"role": "assistant", "content": assistant_reply}
+            )
+
+    with tab_cards:
+        st.subheader("Fiches de résolution générées pour les questions conservées")
+        kept_questions = [e for e in initial_entries if e.get("keep_final")]
+
+        if not kept_questions:
+            st.info(
+                "Aucune question n'est marquée keep_final. Lancez une génération puis revenez ici pour créer les fiches."
             )
         else:
-            try:
-                raw_reply = call_openrouter_raw(
-                    messages=or_messages,
-                    model="openai/gpt-5.1",
-                    max_tokens=1200,
-                    temperature=0.5,
-                )
-                assistant_reply = (raw_reply or "").strip()
-            except Exception as e:
-                assistant_reply = f"Erreur lors de l'appel du chatbot : {e}"
+            options = {f"{e['id']} – {e['title']}": e for e in kept_questions}
+            selected_label = st.selectbox(
+                "Choisissez une question conservée",
+                list(options.keys()),
+            )
+            selected_entry = options[selected_label]
 
-        with st.chat_message("assistant"):
-            st.markdown(assistant_reply)
+            st.markdown(f"**Question complète ({selected_entry['id']}):**")
+            st.markdown(selected_entry["question"])
+            st.caption(
+                f"Sources candidates pour résolution: {selected_entry.get('candidate_source', '(non fourni)')}"
+            )
 
-        st.session_state["refine_chat_history"].append(
-            {"role": "assistant", "content": assistant_reply}
-        )
+            generate_btn = st.button("Générer / régénérer la fiche de résolution")
+            if generate_btn:
+                if dry_run or get_openrouter_key():
+                    with st.spinner("Génération de la fiche de résolution en cours..."):
+                        try:
+                            card_res = generate_resolution_card(
+                                question_entry=selected_entry,
+                                seed=seed,
+                                tags=tags,
+                                horizon=horizon,
+                                model=main_model,
+                                dry_run=dry_run,
+                            )
+                            st.session_state["resolution_cards"][
+                                selected_entry["id"]
+                            ] = card_res
+                        except Exception as e:
+                            st.error(f"Erreur lors de la génération de la fiche: {e}")
+                else:
+                    st.error(
+                        "Aucune clé OPENROUTER_API_KEY n'est configurée. Ajoutez-la dans le panneau latéral ou activez le mode dry_run."
+                    )
 
-# ---------------------- Tab: resolution cards ----------------------
-
-with tab_cards:
-    st.subheader("Fiches de résolution générées pour les questions conservées")
-    kept_questions = [e for e in initial_entries if e.get("keep_final")]
-
-    if not kept_questions:
-        st.info(
-            "Aucune question n'est marquée keep_final. Lancez une génération puis revenez ici pour créer les fiches."
-        )
-        st.stop()
-
-    options = {f"{e['id']} – {e['title']}": e for e in kept_questions}
-    selected_label = st.selectbox("Choisissez une question conservée", list(options.keys()))
-    selected_entry = options[selected_label]
-
-    st.markdown(f"**Question complète ({selected_entry['id']}):**")
-    st.markdown(selected_entry.get("question", ""))
-    st.caption(
-        f"Sources candidates pour résolution: {selected_entry.get('candidate_source', '(non fourni)')}"
+            card_store = st.session_state.get("resolution_cards", {})
+            existing_card = card_store.get(selected_entry["id"])
+            if existing_card:
+                st.markdown("**Fiche de résolution prête à copier-coller :**")
+                st.markdown(existing_card.get("card", "(vide)") or "(vide)")
+            else:
+                st.caption("Aucune fiche générée pour cette question pour le moment.")
+else:
+    st.info(
+        "Configure the number of mutated prompts, total N questions, K kept, "
+        "set your seed, then click the button to run the pipeline."
     )
 
-    generate_btn = st.button("Générer / régénérer la fiche de résolution")
-    if generate_btn:
-        if dry_run or get_openrouter_key():
-            with st.spinner("Génération de la fiche de résolution en cours..."):
-                try:
-                    card_res = generate_resolution_card(
-                        question_entry=selected_entry,
-                        seed=seed,
-                        tags=tags,
-                        horizon=horizon,
-                        model=main_model,
-                        dry_run=dry_run,
-                    )
-                    st.session_state["resolution_cards"][selected_entry["id"]] = card_res
-                except Exception as e:
-                    st.error(f"Erreur lors de la génération de la fiche: {e}")
-        else:
-            st.error(
-                "Aucune clé OPENROUTER_API_KEY n'est configurée. Ajoutez-la dans le panneau latéral ou activez le mode dry_run."
-            )
-
-    card_store = st.session_state.get("resolution_cards", {})
-    existing_card = card_store.get(selected_entry["id"])
-    if existing_card:
-        st.markdown("**Fiche de résolution prête à copier-coller :**")
-        st.markdown(existing_card.get("card", "(vide)") or "(vide)")
-    else:
-        st.caption("Aucune fiche générée pour cette question pour le moment.")
