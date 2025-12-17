@@ -452,7 +452,7 @@ if res is not None:
                 lambda lst: "; ".join(lst) if isinstance(lst, list) else str(lst)
             )
             df_prompts_view = df_prompts_view[
-                [
+                
                     "prompt_id",
                     "kind",
                     "focus",
