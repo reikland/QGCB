@@ -6,6 +6,7 @@ from qgcb.openrouter import call_openrouter_raw, call_openrouter_structured, get
 from qgcb.pipeline import (
     find_resolution_sources_for_prompt,
     generate_initial_questions,
+    generate_resolution_card,
     judge_initial_questions,
     judge_one_question_keep,
     mock_proto_questions,
@@ -38,6 +39,7 @@ __all__ = [
     "call_openrouter_structured",
     "find_resolution_sources_for_prompt",
     "generate_initial_questions",
+    "generate_resolution_card",
     "get_openrouter_key",
     "judge_initial_questions",
     "judge_one_question_keep",

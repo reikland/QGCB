@@ -206,6 +206,53 @@ GEN_USER_TMPL_INITIAL = textwrap.dedent(
     """
 )
 
+# ---------------------- FICHES DE RÉSOLUTION (QUESTIONS CONSERVÉES) ----------------------
+
+RESOLUTION_CARD_SYS = """
+You prepare concise RESOLUTION SHEETS for kept Metaculus-style questions.
+
+Goal:
+- Produce a short, ready-to-paste card that restates the question using full sentences.
+- Keep the canonical ordering: Title, Resolution Criteria, Fine Print, Resolution Sources.
+- Use sentence-style paragraphs (no bullet points, no code fences, no markdown tables).
+
+Rules:
+- Do not invent new constraints: stay faithful to the provided Title/Question/Fine Print content.
+- Clarify any ambiguous time horizon or announcement vs implementation phrasing if the provided text is unclear.
+- Keep Resolution Sources to two or three items and explain in one or two sentences how they will be used to resolve.
+- Keep it compact: total length should be a few short paragraphs, not verbose prose.
+""".strip()
+
+RESOLUTION_CARD_USER_TMPL = textwrap.dedent(
+    """
+    Seed (context):
+    {seed}
+
+    Tags: {tags}
+    Horizon: {horizon}
+
+    Kept question (keep_final=True):
+    ID: {question_id}
+    Title: {title}
+    Body (as generated):
+    {question_block}
+
+    Candidate-source line (keep to 2–3 concrete sources):
+    {candidate_source}
+
+    Rating: {rating}
+    Rating rationale: {rating_rationale}
+
+    Produce a concise resolution sheet with the sections:
+    Title
+    Resolution Criteria
+    Fine Print
+    Resolution Sources (2–3 sources with one sentence on how they will be used)
+
+    Use full sentences (no bullet points) and keep the tone factual and ready to copy/paste.
+    """
+)
+
 # ---------------------- JUDGE LIGHT (keep K parmi N) ----------------------
 
 JUDGE_SYS_KEEP = """
