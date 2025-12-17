@@ -37,8 +37,16 @@ def mock_proto_questions(seed: str, n: int) -> List[ProtoQuestion]:
                 role=role,
                 angle=angle,
                 title=f"[MOCK] {prefix} – Q{i+1}",
-                question="Will the mocked event occur before 2035-12-31?",
+                question=(
+                    "Title: Mock formatted question"\
+                    "\nResolution Criteria: This mock resolves if the placeholder event is reported by the specified date."\
+                    "\nFine Print: Treat any missing data as non-occurrence."\
+                    "\nRating: Publishable"\
+                    "\nRationale: Dry-run placeholder for testing formatting."
+                ),
                 candidate_source="Mock dataset / World Bank / Reuters",
+                rating="Publishable",
+                rating_rationale="Dry-run placeholder for testing formatting.",
             )
         )
     return out
@@ -82,7 +90,7 @@ def mutate_seed_prompt(
         system_prompt=PROMPT_MUTATOR_SYS,
         user_prompt=user_prompt,
         model=model,
-        schema_hint='{"mutations":[{"prompt": string, "focus": string, "rationale": string}]}',
+        schema_hint='{"mutations":[{"prompt":"string","focus":"string","rationale":"string"}]}',
         max_tokens=1500,
         temperature=0.4,
     )
@@ -144,7 +152,7 @@ def find_resolution_sources_for_prompt(
         system_prompt=SOURCE_SYS,
         user_prompt=user_prompt,
         model=model,
-        schema_hint='{"sources":[string, ...]}',
+        schema_hint='{"sources":["string", "string"]}',
         max_tokens=1200,
         temperature=0.2,
     )
@@ -163,6 +171,9 @@ def find_resolution_sources_for_prompt(
 
     if not sources:
         sources = ["Generic public statistics and major news wires (fallback)."]
+
+    # Keep the list focused and aligned with the generator expectation of two to three concrete sources
+    sources = sources[:3]
 
     return {
         "sources": sources,

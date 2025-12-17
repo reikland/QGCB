@@ -351,6 +351,8 @@ if run_button:
                                         "title": q.title,
                                         "question": q.question,
                                         "candidate_source": q.candidate_source,
+                                        "rating": getattr(q, "rating", ""),
+                                        "rating_rationale": getattr(q, "rating_rationale", ""),
                                         "judge_keep": jr.keep,
                                         "judge_resolvability": jr.resolvability,
                                         "judge_info": jr.info,
@@ -477,6 +479,8 @@ if res is not None:
                 "question",
                 "candidate_source",
                 "angle",
+                "rating",
+                "rating_rationale",
                 "judge_rationale",
             ]
         ].copy()
