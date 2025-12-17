@@ -17,6 +17,8 @@ from qgcb.prompts import (
     JUDGE_USER_TMPL_KEEP,
     PROMPT_MUTATOR_SYS,
     PROMPT_MUTATOR_USER_TMPL,
+    RESOLUTION_CARD_SYS,
+    RESOLUTION_CARD_USER_TMPL,
     SOURCE_SYS,
     SOURCE_USER_TMPL,
 )
@@ -37,8 +39,16 @@ def mock_proto_questions(seed: str, n: int) -> List[ProtoQuestion]:
                 role=role,
                 angle=angle,
                 title=f"[MOCK] {prefix} – Q{i+1}",
-                question="Will the mocked event occur before 2035-12-31?",
+                question=(
+                    "Title: Mock formatted question"\
+                    "\nResolution Criteria: This mock resolves if the placeholder event is reported by the specified date."\
+                    "\nFine Print: Treat any missing data as non-occurrence."\
+                    "\nRating: Publishable"\
+                    "\nRationale: Dry-run placeholder for testing formatting."
+                ),
                 candidate_source="Mock dataset / World Bank / Reuters",
+                rating="Publishable",
+                rating_rationale="Dry-run placeholder for testing formatting.",
             )
         )
     return out
@@ -82,7 +92,7 @@ def mutate_seed_prompt(
         system_prompt=PROMPT_MUTATOR_SYS,
         user_prompt=user_prompt,
         model=model,
-        schema_hint='{"mutations":[{"prompt": string, "focus": string, "rationale": string}]}',
+        schema_hint='{"mutations":[{"prompt":"string","focus":"string","rationale":"string"}]}',
         max_tokens=1500,
         temperature=0.4,
     )
@@ -144,7 +154,7 @@ def find_resolution_sources_for_prompt(
         system_prompt=SOURCE_SYS,
         user_prompt=user_prompt,
         model=model,
-        schema_hint='{"sources":[string, ...]}',
+        schema_hint='{"sources":["string", "string"]}',
         max_tokens=1200,
         temperature=0.2,
     )
@@ -163,6 +173,9 @@ def find_resolution_sources_for_prompt(
 
     if not sources:
         sources = ["Generic public statistics and major news wires (fallback)."]
+
+    # Keep the list focused and aligned with the generator expectation of two to three concrete sources
+    sources = sources[:3]
 
     return {
         "sources": sources,
@@ -237,6 +250,62 @@ def generate_initial_questions(
         "n_parsed": len(questions),
         "n_requested": n,
         "attempts": attempts,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Step D – Fiches de résolution pour questions conservées
+# ---------------------------------------------------------------------------
+
+def generate_resolution_card(
+    question_entry: Dict[str, Any],
+    seed: str,
+    tags: List[str],
+    horizon: str,
+    model: str,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    if dry_run:
+        return {
+            "question_id": question_entry.get("id", "unknown"),
+            "card": (
+                "Title: Mock resolution card\n"
+                "Resolution Criteria: This dry-run card explains how the question would resolve using the supplied sources.\n"
+                "Fine Print: In a real run this would restate the safeguards and fallback behaviour in sentences.\n"
+                "Resolution Sources: World Bank WDI and IMF WEO as primary references."
+            ),
+            "raw_output": "",
+        }
+
+    question_block = str(question_entry.get("question", "")).strip()
+    user_prompt = RESOLUTION_CARD_USER_TMPL.format(
+        seed=seed.strip(),
+        tags=", ".join(tags) or "unspecified",
+        horizon=horizon.strip() or "unspecified",
+        question_id=question_entry.get("id", "unknown"),
+        title=question_entry.get("title", "(missing title)"),
+        question_block=question_block,
+        candidate_source=question_entry.get("candidate_source", ""),
+        rating=question_entry.get("rating", ""),
+        rating_rationale=question_entry.get("rating_rationale", ""),
+    )
+
+    messages = [
+        {"role": "system", "content": RESOLUTION_CARD_SYS},
+        {"role": "user", "content": user_prompt},
+    ]
+
+    raw_output = call_openrouter_raw(
+        messages=messages,
+        model=model,
+        max_tokens=800,
+        temperature=0.2,
+    )
+
+    return {
+        "question_id": question_entry.get("id", "unknown"),
+        "card": raw_output.strip(),
+        "raw_output": raw_output,
     }
 
 
@@ -384,6 +453,7 @@ def select_top_k(
 __all__ = [
     "find_resolution_sources_for_prompt",
     "generate_initial_questions",
+    "generate_resolution_card",
     "judge_initial_questions",
     "judge_one_question_keep",
     "mock_proto_questions",

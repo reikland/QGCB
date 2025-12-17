@@ -11,6 +11,8 @@ class ProtoQuestion(BaseModel):
     title: str
     question: str
     candidate_source: str = Field(default="", alias="candidate_source")
+    rating: str = ""
+    rating_rationale: str = ""
 
 
 class JudgeKeepResult(BaseModel):
@@ -47,11 +49,48 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
     lines = [ln.rstrip("\n") for ln in text.splitlines()]
     questions: List[ProtoQuestion] = []
     current: Optional[Dict[str, Any]] = None
+    question_lines: List[str] = []
+    capturing_question = False
+
+    def finalize_question():
+        nonlocal question_lines, capturing_question
+        if current is None:
+            return
+        if capturing_question:
+            # Remove stray scoring/meta-evaluation lines that occasionally leak from models
+            cleaned_lines = []
+            for ln in question_lines:
+                lower_ln = ln.lower()
+                if lower_ln.startswith("resolvability:"):
+                    continue
+                if lower_ln.startswith("information value") or lower_ln.startswith("info value"):
+                    continue
+                if lower_ln.startswith("decision impact"):
+                    continue
+                if lower_ln.startswith("voi:"):
+                    continue
+                if lower_ln.startswith("minutes to resolve"):
+                    continue
+                cleaned_lines.append(ln)
+
+            joined = "\n".join([ln.strip() for ln in cleaned_lines if ln.strip() != ""])
+            current["question"] = joined
+        question_lines = []
+        capturing_question = False
 
     def push_current():
         nonlocal current
         if not current:
             return
+        if capturing_question:
+            finalize_question()
+        # Enforce a default rating if missing to keep downstream displays populated
+        rating_val = (current or {}).get("rating", "").strip()
+        if rating_val.upper() not in {"PUBLISHABLE", "SOFT REJECT", "HARD REJECT"}:
+            current["rating"] = "Hard Reject"
+            current["rating_rationale"] = current.get("rating_rationale", "").strip() or (
+                "Rating missing from generation; defaulted to Hard Reject for safety."
+            )
         if current.get("title") and current.get("question"):
             try:
                 q = ProtoQuestion(**current)
@@ -72,11 +111,22 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
                 "title": "",
                 "question": "",
                 "candidate_source": "",
+                "rating": "",
+                "rating_rationale": "",
             }
             continue
         if current is None:
             continue
         lower = line.lower()
+
+        # If we are capturing the Question block and encounter a new section label, finalize the question first
+        if capturing_question and (
+            lower.startswith("angle:")
+            or lower.startswith("candidate-source:")
+            or lower.startswith("role:")
+        ):
+            finalize_question()
+
         if lower.startswith("role:"):
             val = line.split(":", 1)[1].strip().upper()
             if val not in {"CORE", "VARIANT"}:
@@ -85,7 +135,23 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
         elif lower.startswith("title:"):
             current["title"] = line.split(":", 1)[1].strip()
         elif lower.startswith("question:"):
-            current["question"] = line.split(":", 1)[1].strip()
+            finalize_question()
+            capturing_question = True
+            question_lines.append(line.split(":", 1)[1].strip())
+        elif capturing_question:
+            if lower.startswith("rating:"):
+                finalize_question()
+                current["rating"] = line.split(":", 1)[1].strip()
+                continue
+            elif lower.startswith("rationale:"):
+                finalize_question()
+                current["rating_rationale"] = line.split(":", 1)[1].strip()
+                continue
+            question_lines.append(line)
+        elif lower.startswith("rating:"):
+            current["rating"] = line.split(":", 1)[1].strip()
+        elif lower.startswith("rationale:"):
+            current["rating_rationale"] = line.split(":", 1)[1].strip()
         elif lower.startswith("angle:"):
             current["angle"] = line.split(":", 1)[1].strip()
         elif lower.startswith("candidate-source:"):

@@ -147,15 +147,28 @@ Content constraints:
   similarly named pages exist, pick the most authoritative one and add a short disambiguation
   cue (e.g., "use the 2024 IMF WEO October database country table for GDP, not earlier editions").
 
-STRICT FORMAT (LINE-BASED)
-For each i = 1..N you output a block with these 5 lines:
+STRICT FORMAT (LINE-BASED, WITH METACULUS STRUCTURE INSIDE THE QUESTION BLOCK)
+For each i = 1..N you output a block with these lines (use EXACT labels):
 
 QUESTION i
 Role: CORE or VARIANT
 Title: <short title, <= 100 characters, single line>
-Question: <1–3 sentences, single line, ends with '?' or equivalent>
+Question: Title: <repeat title here>
+  Resolution Criteria: <explicit, time-bounded, testable resolution event; include exact formulae and baselines>
+  Fine Print: <short sentences (no bullet points) covering exclusions, boundary behaviour, delayed/non-announced events, and a single authoritative resolution source with a named backup>
+  Rating: <Publishable | Soft Reject | Hard Reject>
+  Rationale: <2–4 sentences, objective justification for the rating>
 Angle: <short phrase capturing the angle within the cluster>
 Candidate-source: <precise public page(s) or endpoint to resolve, with disambiguation if needed>
+
+Additional generation rules (APPLY WITHIN THE QUESTION BLOCK):
+- Remove ambiguity on time horizons: cite exact announcement date vs implementation date, and the resolution date/timezone.
+- State explicit baselines/denominators/units for any percentage, currency, or rate; if comparing to a past value, name the reference year/figure.
+- Define fallback behaviour: what happens if the event is not announced, delayed, annulled, or partially implemented.
+- Specify actors precisely (e.g., "U.S. Department of Energy" rather than "the government"), and specify which publications count as official.
+- Candidate-source MUST name two or three precise public sources and, in one short sentence, explain how they will be used to resolve the question.
+- Do NOT output any scoring or meta-evaluation fields (e.g., resolvability scores, information value, VOI, decision impact) beyond the Rating + Rationale requested.
+- Keep the Rating section at the end and include exactly ONE rating per question.
 
 Between blocks you MAY optionally have a single blank line.
 You MUST NOT output anything else before, between, or after the blocks.
@@ -192,6 +205,53 @@ GEN_USER_TMPL_INITIAL = textwrap.dedent(
 
     Output ONLY the blocks in the EXACT format specified in the system message.
     Do NOT restate the instructions. Do NOT explain your choices.
+    """
+)
+
+# ---------------------- FICHES DE RÉSOLUTION (QUESTIONS CONSERVÉES) ----------------------
+
+RESOLUTION_CARD_SYS = """
+You prepare concise RESOLUTION SHEETS for kept Metaculus-style questions.
+
+Goal:
+- Produce a short, ready-to-paste card that restates the question using full sentences.
+- Keep the canonical ordering: Title, Resolution Criteria, Fine Print, Resolution Sources.
+- Use sentence-style paragraphs (no bullet points, no code fences, no markdown tables).
+
+Rules:
+- Do not invent new constraints: stay faithful to the provided Title/Question/Fine Print content.
+- Clarify any ambiguous time horizon or announcement vs implementation phrasing if the provided text is unclear.
+- Keep Resolution Sources to two or three items and explain in one or two sentences how they will be used to resolve.
+- Keep it compact: total length should be a few short paragraphs, not verbose prose.
+""".strip()
+
+RESOLUTION_CARD_USER_TMPL = textwrap.dedent(
+    """
+    Seed (context):
+    {seed}
+
+    Tags: {tags}
+    Horizon: {horizon}
+
+    Kept question (keep_final=True):
+    ID: {question_id}
+    Title: {title}
+    Body (as generated):
+    {question_block}
+
+    Candidate-source line (keep to 2–3 concrete sources):
+    {candidate_source}
+
+    Rating: {rating}
+    Rating rationale: {rating_rationale}
+
+    Produce a concise resolution sheet with the sections:
+    Title
+    Resolution Criteria
+    Fine Print
+    Resolution Sources (2–3 sources with one sentence on how they will be used)
+
+    Use full sentences (no bullet points) and keep the tone factual and ready to copy/paste.
     """
 )
 

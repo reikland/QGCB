@@ -129,8 +129,9 @@ def call_openrouter_structured(
     max_tokens: int = 1200,
     temperature: float = 0.2,
     retries: int = 3,
+    allow_fallback_raw: bool = True,
 ) -> Dict[str, Any]:
-    """Minimal structured output extraction with retries."""
+    """Minimal structured output extraction with retries and raw fallback."""
 
     last_error: Optional[Exception] = None
 
@@ -140,6 +141,22 @@ def call_openrouter_structured(
         + f"Target JSON schema (informal): {schema_hint}\n"
         + "Do not wrap the JSON in backticks. Do not add any text before or after it."
     )
+
+    def _parse_candidates(raw_text: str) -> Optional[Dict[str, Any]]:
+        candidates = [raw_text, _strip_code_fences(raw_text), _extract_json_block(raw_text)]
+        last_exc: Optional[Exception] = None
+        for cand in candidates:
+            try:
+                data = _json.loads(cand)
+                if isinstance(data, dict):
+                    return data
+                return {"data": data}
+            except Exception as exc:  # pragma: no cover - defensive
+                last_exc = exc
+                continue
+        if last_exc:
+            raise last_exc
+        return None
 
     for _ in range(retries):
         try:
@@ -153,23 +170,37 @@ def call_openrouter_structured(
                 temperature=temperature,
                 response_format={"type": "json_object"},
             )
-            candidates = [raw, _strip_code_fences(raw), _extract_json_block(raw)]
-            last_exc: Optional[Exception] = None
-            for cand in candidates:
-                try:
-                    data = _json.loads(cand)
-                    break
-                except Exception as exc:  # pragma: no cover - defensive
-                    last_exc = exc
-                    continue
-            else:
-                raise last_exc or RuntimeError("No JSON candidate parsed")
-            if isinstance(data, dict):
-                return data
-            return {"data": data}
+            parsed = _parse_candidates(raw)
+            if parsed is not None:
+                return parsed
         except Exception as e:
             last_error = e
             continue
+
+    if allow_fallback_raw:
+        try:
+            raw_text = call_openrouter_raw(
+                messages=[
+                    {"role": "system", "content": system_with_schema},
+                    {"role": "user", "content": user_prompt},
+                ],
+                model=model,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            )
+            try:
+                parsed = _parse_candidates(raw_text)
+                if parsed is not None:
+                    parsed.setdefault("_raw_text", raw_text)
+                    return parsed
+            except Exception:
+                pass
+            return {"_raw_text": raw_text.strip()}
+        except Exception as fallback_error:  # pragma: no cover - defensive
+            raise RuntimeError(
+                f"[openrouter_structured] Invalid JSON after retries: {repr(last_error)}; "
+                f"fallback failed: {repr(fallback_error)}"
+            )
 
     raise RuntimeError(f"[openrouter_structured] Invalid JSON after retries: {repr(last_error)}")
 
