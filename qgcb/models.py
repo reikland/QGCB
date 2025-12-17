@@ -74,7 +74,6 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
                 cleaned_lines.append(ln)
 
             joined = "\n".join([ln.strip() for ln in cleaned_lines if ln.strip() != ""])
-            joined = "\n".join([ln.strip() for ln in question_lines if ln.strip() != ""])
             current["question"] = joined
         question_lines = []
         capturing_question = False
@@ -125,7 +124,6 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
             lower.startswith("angle:")
             or lower.startswith("candidate-source:")
             or lower.startswith("role:")
-            lower.startswith("angle:") or lower.startswith("candidate-source:") or lower.startswith("role:")
         ):
             finalize_question()
 
@@ -154,10 +152,6 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
             current["rating"] = line.split(":", 1)[1].strip()
         elif lower.startswith("rationale:"):
             current["rating_rationale"] = line.split(":", 1)[1].strip()
-                current["rating"] = line.split(":", 1)[1].strip()
-            elif lower.startswith("rationale:"):
-                current["rating_rationale"] = line.split(":", 1)[1].strip()
-            question_lines.append(line)
         elif lower.startswith("angle:"):
             current["angle"] = line.split(":", 1)[1].strip()
         elif lower.startswith("candidate-source:"):
