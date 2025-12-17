@@ -38,7 +38,7 @@ st.title("Metaculus – Evolutionary Proto Question Generator")
 
 st.markdown(
     """
-New 3-stage pipeline (PROMPTS → SOURCES → QUESTIONS):
+Four-stage pipeline (PROMPTS → SOURCES → QUESTIONS → RESOLUTION CARDS):
 
 1. **Prompt mutations**: starting from your seed, the main model creates several more concrete,
    resolvable prompts (mutations).
@@ -46,6 +46,8 @@ New 3-stage pipeline (PROMPTS → SOURCES → QUESTIONS):
    concrete public resolution sources (datasets, agencies, news wires, etc.).
 3. **Question generation + strict judge**: the main model generates proto-questions around all prompts
    (respecting the resolution sources), then the judge filters them with an obsession for resolvability.
+4. **Resolution cards (auto)**: for every kept question, the same main model drafts a ready-to-copy
+   Metaculus-style resolution card using the question text and source hints.
 
 Formatting is strictly controlled (no JSON returned by templates for questions) and the final JSON
 is built on the Python side only.
@@ -161,7 +163,7 @@ if run_button:
         )
 
         # A) Mutations de prompt
-        with st.spinner("Step 1/3 – Mutating seed prompt into more concrete prompts..."):
+        with st.spinner("Step 1/4 – Mutating seed prompt into more concrete prompts..."):
             try:
                 mut_res = mutate_seed_prompt(
                     seed=seed,
@@ -211,7 +213,7 @@ if run_button:
                 )
 
             # B) Recherche de sources pour chaque prompt
-            with st.spinner("Step 2/3 – Finding concrete resolution sources for each prompt..."):
+            with st.spinner("Step 2/4 – Finding concrete resolution sources for each prompt..."):
                 for pe in prompt_entries:
                     try:
                         src_res = find_resolution_sources_for_prompt(
@@ -231,7 +233,7 @@ if run_button:
             # C) Génération de questions pour l'ensemble des prompts (répartition N_total)
             generated_at = datetime.now(timezone.utc).isoformat()
 
-            with st.spinner("Step 3/3 – Generating proto-questions across all prompts and judging them..."):
+            with st.spinner("Step 3/4 – Generating proto-questions across all prompts and judging them..."):
                 all_questions: List[ProtoQuestion] = []
                 all_prompt_ids: List[str] = []
                 raw_gen_chunks: List[str] = []
@@ -301,7 +303,7 @@ if run_button:
                                 )
                             judge_contexts.append(ctx)
 
-                        # Judge strict (résolvabilité + info + critères sup.)
+                        # Strict judge (resolvability + info + decision impact)
                         try:
                             judge_res0: List[JudgeKeepResult] = judge_initial_questions(
                                 questions=all_questions,
@@ -370,7 +372,38 @@ if run_button:
 
                             raw_gen_output = "\n\n".join(raw_gen_chunks)
 
-                            # Construction du résultat global (en dicts, pour DataFrame + JSON)
+                            kept_entries = [e for e in initial_entries if e.get("keep_final")]
+                            card_store: Dict[str, Any] = {}
+
+                            if kept_entries:
+                                card_store = st.session_state.get("resolution_cards", {})
+                                if dry_run or get_openrouter_key():
+                                    with st.spinner(
+                                        "Step 4/4 – Generating resolution cards for kept questions..."
+                                    ):
+                                        for entry in kept_entries:
+                                            try:
+                                                card_res = generate_resolution_card(
+                                                    question_entry=entry,
+                                                    seed=seed,
+                                                    tags=tags,
+                                                    horizon=horizon,
+                                                    model=main_model,
+                                                    dry_run=dry_run,
+                                                )
+                                                card_store[entry["id"]] = card_res
+                                            except Exception as e:
+                                                st.error(
+                                                    f"Resolution card generation error for {entry['id']}: {e}"
+                                                )
+                                else:
+                                    st.error(
+                                        "No OPENROUTER_API_KEY detected. Add it in the sidebar or enable dry_run to build resolution cards."
+                                    )
+
+                            st.session_state["resolution_cards"] = card_store
+
+                            # Build the global result structure (dicts for DataFrame + JSON)
                             res_dict = {
                                 "models": {
                                     "main": main_model,
@@ -390,7 +423,8 @@ if run_button:
                                 "horizon": horizon,
                                 "prompts": prompt_entries,
                                 "initial": initial_entries,
-                                "expanded": [],  # plus utilisé, conservé pour compat éventuelle
+                                "resolution_cards": card_store,
+                                "expanded": [],  # legacy placeholder for potential future generations
                                 "raw_prompt_mutation_output": raw_mut_output,
                                 "raw_source_finder_outputs": {
                                     pe["prompt_id"]: pe.get("sources_raw", "") for pe in prompt_entries
@@ -420,7 +454,7 @@ else:
     initial_entries = res["initial"]
 
     tab_overview, tab_cards = st.tabs(
-        ["Synthèse & questions", "Fiches de résolution (questions conservées)"]
+        ["Overview & questions", "Resolution cards (kept questions)"]
     )
 
     with tab_overview:
@@ -580,10 +614,10 @@ else:
                 mime="text/csv",
             )
 
-        st.subheader("Chat de suivi (GPT‑5 avec questions conservées)")
+        st.subheader("Follow-up chat (GPT‑5 with kept questions)")
         kept_questions = [e for e in initial_entries if e.get("keep_final")]
         if kept_questions:
-            with st.expander("Questions conservées (keep_final = True)", expanded=False):
+            with st.expander("Kept questions (keep_final = True)", expanded=False):
                 for e in kept_questions:
                     st.markdown(
                         f"- **{e['id']}** – {e['title']}\n\n"
@@ -592,8 +626,7 @@ else:
 
         else:
             st.info(
-                "Aucune question n'est marquée keep_final. Le chat fonctionnera quand même, "
-                "mais sans contexte joint."
+                "No questions are marked keep_final. The chat will still work but without injected context."
             )
 
         chat_system_prompt = f"""
@@ -615,7 +648,7 @@ Static context (do not repeat unless the user asks):
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
 
-        user_input = st.chat_input("Écrivez un message pour discuter des questions conservées.")
+        user_input = st.chat_input("Write a message to discuss the kept questions.")
 
         if user_input:
             st.session_state["refine_chat_history"].append(
@@ -631,13 +664,11 @@ Static context (do not repeat unless the user asks):
 
             if dry_run:
                 assistant_reply = (
-                    "Mode dry-run : je simulerais ici une réponse basée sur vos questions "
-                    "conservées et votre message."
+                    "Dry-run mode: this would simulate a reply using your kept questions and message."
                 )
             elif not get_openrouter_key():
                 assistant_reply = (
-                    "Aucune clé OPENROUTER_API_KEY n'est configurée. Ajoutez-la dans le "
-                    "panneau latéral ou activez le mode dry_run."
+                    "No OPENROUTER_API_KEY is configured. Add it in the sidebar or enable dry_run."
                 )
             else:
                 try:
@@ -649,7 +680,7 @@ Static context (do not repeat unless the user asks):
                     )
                     assistant_reply = raw_reply.strip()
                 except Exception as e:
-                    assistant_reply = f"Erreur lors de l'appel du chatbot : {e}"
+                    assistant_reply = f"Error calling the chatbot: {e}"
 
             with st.chat_message("assistant"):
                 st.markdown(assistant_reply)
@@ -659,54 +690,16 @@ Static context (do not repeat unless the user asks):
             )
 
     with tab_cards:
-        st.subheader("Fiches de résolution générées pour les questions conservées")
+        st.subheader("Resolution cards generated for kept questions")
         kept_questions = [e for e in initial_entries if e.get("keep_final")]
 
         if not kept_questions:
             st.info(
-                "Aucune question n'est marquée keep_final. Lancez une génération puis revenez ici pour créer les fiches."
+                "No questions are marked keep_final. Run the pipeline and return here to view resolution cards."
             )
         else:
-            options = {f"{e['id']} – {e['title']}": e for e in kept_questions}
-            selected_label = st.selectbox(
-                "Choisissez une question conservée",
-                list(options.keys()),
-            )
-            selected_entry = options[selected_label]
-
-            st.markdown(f"**Question complète ({selected_entry['id']}):**")
-            st.markdown(selected_entry["question"])
-            st.caption(
-                f"Sources candidates pour résolution: {selected_entry.get('candidate_source', '(non fourni)')}"
-            )
-
-            generate_btn = st.button("Générer / régénérer la fiche de résolution")
-            if generate_btn:
-                if dry_run or get_openrouter_key():
-                    with st.spinner("Génération de la fiche de résolution en cours..."):
-                        try:
-                            card_res = generate_resolution_card(
-                                question_entry=selected_entry,
-                                seed=seed,
-                                tags=tags,
-                                horizon=horizon,
-                                model=main_model,
-                                dry_run=dry_run,
-                            )
-                            st.session_state["resolution_cards"][
-                                selected_entry["id"]
-                            ] = card_res
-                        except Exception as e:
-                            st.error(f"Erreur lors de la génération de la fiche: {e}")
-                else:
-                    st.error(
-                        "Aucune clé OPENROUTER_API_KEY n'est configurée. Ajoutez-la dans le panneau latéral ou activez le mode dry_run."
-                    )
-
             card_store = st.session_state.get("resolution_cards", {})
-            existing_card = card_store.get(selected_entry["id"])
-            if existing_card:
-                st.markdown("**Fiche de résolution prête à copier-coller :**")
-                st.markdown(existing_card.get("card", "(vide)") or "(vide)")
-            else:
-                st.caption("Aucune fiche générée pour cette question pour le moment.")
+            for e in kept_questions:
+                card_entry = card_store.get(e["id"], {})
+                st.markdown(f"**Resolution card – {e['id']} ({e['title']}):**")
+                st.markdown(card_entry.get("card", "(no card generated)") or "(no card generated)")
