@@ -478,31 +478,34 @@ if res is not None:
     df_init = pd.DataFrame(initial_entries)
     df_init_for_download = None
 
-    if not df_init.empty:
-        df_init_view = df_init[
-                "id",
-                "parent_prompt_id",
-                "keep_final",
-                "judge_keep",
-                "judge_resolvability",
-                "judge_info",
-                "judge_decision_impact",
-                "judge_voi",
-                "judge_minutes_to_resolve",
-                "title",
-                "question",
-                "candidate_source",
-                "angle",
-                "rating",
-                "rating_rationale",
-                "judge_rationale",
-            ]
-            st.caption(
-                "Root seed (p0) and mutated prompts (p1, p2, ...) with associated public resolution sources."
-            )
-            st.dataframe(df_prompts_view, use_container_width=True)
-        else:
-            st.info("No prompts recorded.")
+ if not df_init.empty:
+    df_init_view = df_init[[
+        "id",
+        "parent_prompt_id",
+        "keep_final",
+        "judge_keep",
+        "judge_resolvability",
+        "judge_info",
+        "judge_decision_impact",
+        "judge_voi",
+        "judge_minutes_to_resolve",
+        "title",
+        "question",
+        "candidate_source",
+        "angle",
+        "rating",
+        "rating_rationale",
+        "judge_rationale",
+    ]]
+
+    st.caption(
+        "Root seed (p0) and mutated prompts (p1, p2, ...) with associated public resolution sources."
+    )
+    st.dataframe(df_init_view, use_container_width=True)
+
+else:
+    st.info("No prompts recorded.")
+
 
         st.subheader("Proto-questions (generation 0, across all prompts)")
         df_init = pd.DataFrame(initial_entries)
