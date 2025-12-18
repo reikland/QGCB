@@ -152,6 +152,17 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
             }
             block_lines = [raw]
             continue
+        if current is None and line.lower().startswith("title:"):
+            current = {
+                "role": "VARIANT",
+                "angle": "",
+                "title": line.split(":", 1)[1].strip(),
+                "question": "",
+                "candidate_source": "",
+                "rating": "",
+                "rating_rationale": "",
+            }
+            continue
         if current is None:
             continue
         block_lines.append(raw)
