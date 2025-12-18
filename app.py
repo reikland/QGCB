@@ -655,21 +655,30 @@ else:
                 "No questions are marked keep_final. The chat will still work but without injected context."
             )
 
-        chat_system_prompt = f"""
-You are a fresh GPT-5.1 chat instance dedicated to quick follow-up with the user.
-Always answer in plain text (no JSON, no markdown code blocks).
+        kept_preview_lines = [
+            f"  • {e['id']} – {e['title']} – {e['question']}"
+            for e in kept_questions[:8]
+        ] or ["  • None"]
 
-Static context (do not repeat unless the user asks):
-- Seed: {seed}
-- Tags: {', '.join(tags)}
-- Horizon: {horizon}
-- Shortlisted questions (keep_final):
-{chr(10).join([f"  • {e['id']} – {e['title']} – {e['question']}" for e in kept_questions]) if kept_questions else '  • None'}
-""".strip()
+        chat_system_prompt = (
+            "You are a fast, concise assistant for follow-up on kept forecasting questions. "
+            "Reply in plain text (no markdown fences), stay brief (<=5 sentences), and keep the conversation going without resetting context. "
+            "If you do not know, say so quickly.\n\n"
+            f"Context:\n- Seed: {seed}\n- Tags: {', '.join(tags)}\n- Horizon: {horizon}\n"
+            f"- Shortlisted questions:\n{chr(10).join(kept_preview_lines)}"
+        )
 
         if "refine_chat_history" not in st.session_state:
             st.session_state["refine_chat_history"] = []
+        if "refine_chat_context" not in st.session_state:
+            st.session_state["refine_chat_context"] = chat_system_prompt
 
+        col_chat_controls = st.columns([4, 1])
+        with col_chat_controls[1]:
+            if st.button("Reset chat", use_container_width=True):
+                st.session_state["refine_chat_history"] = []
+
+        # Always show the running thread; do not reset it on rerun
         for msg in st.session_state["refine_chat_history"]:
             with st.chat_message(msg["role"]):
                 st.markdown(msg["content"])
@@ -686,7 +695,9 @@ Static context (do not repeat unless the user asks):
             or_messages: List[Dict[str, str]] = [
                 {"role": "system", "content": chat_system_prompt}
             ]
-            or_messages.extend(st.session_state["refine_chat_history"])
+            # Trim context for faster responses while keeping conversation continuity
+            history_for_model = st.session_state["refine_chat_history"][-24:]
+            or_messages.extend(history_for_model)
 
             if dry_run:
                 assistant_reply = (
@@ -701,8 +712,8 @@ Static context (do not repeat unless the user asks):
                     raw_reply = call_openrouter_raw(
                         messages=or_messages,
                         model="openai/gpt-5.1",
-                        max_tokens=1200,
-                        temperature=0.5,
+                        max_tokens=600,
+                        temperature=0.4,
                     )
                     assistant_reply = raw_reply.strip()
                 except Exception as e:
