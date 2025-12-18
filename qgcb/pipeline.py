@@ -193,6 +193,8 @@ def generate_initial_questions(
     horizon: str,
     n: int,
     model: str,
+    prompt_text: str = "",
+    resolution_hints: str = "",
     dry_run: bool = False,
     max_attempts: int = 3,
 ) -> Dict[str, Any]:
@@ -217,8 +219,8 @@ def generate_initial_questions(
         user_prompt = GEN_USER_TMPL_INITIAL.format(
             n=need,
             seed=seed.strip(),
-            prompt_text="",
-            resolution_hints="(see seed context above)",
+            prompt_text=prompt_text.strip() or "(see seed context above)",
+            resolution_hints=resolution_hints.strip() or "(see seed context above)",
             tags=", ".join(tags) or "unspecified",
             horizon=horizon.strip() or "unspecified",
         )
@@ -415,10 +417,12 @@ def select_top_k(
         raise ValueError("questions and judge_res length mismatch")
 
     indices = list(range(n))
+    verdict_weight = {"Publishable": 2, "Soft Reject": 1, "Hard Reject": 0}
 
     def score_tuple(i: int):
         jr = judge_res[i]
-        return (jr.resolvability, jr.info)
+        verdict_score = verdict_weight.get(jr.verdict, 0)
+        return (verdict_score, jr.resolvability, jr.info, jr.keep)
 
     kept_indices = [i for i in indices if judge_res[i].keep == 1]
     not_kept_indices = [i for i in indices if i not in kept_indices]

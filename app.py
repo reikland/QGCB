@@ -264,6 +264,8 @@ if run_button:
                                 tags=tags,
                                 horizon=horizon,
                                 n=n_for_this,
+                                prompt_text=pe["text"],
+                                resolution_hints=hints_str,
                                 model=main_model,
                                 dry_run=dry_run,
                             )
