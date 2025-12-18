@@ -699,6 +699,7 @@ else:
         col_chat_controls = st.columns([4, 1])
         with col_chat_controls[1]:
             if st.button("Reset chat", width="stretch"):
+            if st.button("Reset chat", use_container_width=True):
                 st.session_state["refine_chat_history"] = []
 
         # Always show the running thread; do not reset it on rerun
