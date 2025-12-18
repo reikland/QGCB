@@ -1,5 +1,6 @@
 """Pydantic models and parsing helpers used across the pipeline."""
 
+import re
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, ValidationError
@@ -54,6 +55,18 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
     question_lines: List[str] = []
     capturing_question = False
 
+    header_patterns = [
+        re.compile(r"^QUESTION\s+\d+", re.IGNORECASE),
+        re.compile(r"^Q\s*\d+\b", re.IGNORECASE),
+    ]
+
+    def is_question_header(line: str) -> bool:
+        normalized = line.lstrip("#*- \t").strip()
+        for pat in header_patterns:
+            if pat.match(normalized):
+                return True
+        return False
+
     def finalize_question():
         nonlocal question_lines, capturing_question
         if current is None:
@@ -86,6 +99,9 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
             return
         if capturing_question:
             finalize_question()
+        # If the model forgot to include the question body, fall back to the title to keep the block usable.
+        if not current.get("question") and current.get("title"):
+            current["question"] = f"Title: {current['title']}"
         # Enforce a default rating if missing to keep downstream displays populated
         rating_val = (current or {}).get("rating", "").strip()
         if rating_val.upper() not in {"PUBLISHABLE", "SOFT REJECT", "HARD REJECT"}:
@@ -105,12 +121,23 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
         line = raw.strip()
         if not line:
             continue
-        if line.upper().startswith("QUESTION "):
+        if is_question_header(line):
             push_current()
             current = {
                 "role": "VARIANT",
                 "angle": "",
                 "title": "",
+                "question": "",
+                "candidate_source": "",
+                "rating": "",
+                "rating_rationale": "",
+            }
+            continue
+        if current is None and line.lower().startswith("title:"):
+            current = {
+                "role": "VARIANT",
+                "angle": "",
+                "title": line.split(":", 1)[1].strip(),
                 "question": "",
                 "candidate_source": "",
                 "rating": "",
