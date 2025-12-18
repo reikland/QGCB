@@ -350,9 +350,9 @@ if run_button:
                                 p_id = all_prompt_ids[idx_q]
                                 rating_val = (q.rating or jr.verdict or "").strip()
                                 rating_rationale_val = (
-                                    q.rating_rationale
-                                    or jr.verdict_rationale
+                                    jr.verdict_rationale
                                     or jr.rationale
+                                    or q.rating_rationale
                                     or ""
                                 ).strip()
                                 initial_entries.append(
@@ -536,8 +536,6 @@ else:
                     "question",
                     "candidate_source",
                     "angle",
-                    "rating",
-                    "rating_rationale",
                     "judge_rationale",
                     "raw_question_block",
                 ]
@@ -639,6 +637,30 @@ else:
                 file_name="metaculus_proto_questions.csv",
                 mime="text/csv",
             )
+
+            kept_cards_data = []
+            for e in kept_questions:
+                card_entry = st.session_state.get("resolution_cards", {}).get(e["id"], {})
+                kept_cards_data.append(
+                    {
+                        "id": e["id"],
+                        "title": e["title"],
+                        "question": e["question"],
+                        "resolution_card": card_entry.get("card", ""),
+                        "seed": seed,
+                        "domain_tags": ", ".join(tags),
+                        "resolution_horizon": horizon,
+                    }
+                )
+            if kept_cards_data:
+                df_cards = pd.DataFrame(kept_cards_data)
+                csv_cards = df_cards.to_csv(index=False).encode("utf-8")
+                st.download_button(
+                    "Download resolution cards for kept questions (CSV)",
+                    data=csv_cards,
+                    file_name="metaculus_resolution_cards.csv",
+                    mime="text/csv",
+                )
 
         st.subheader("Follow-up chat (GPT‑5 with kept questions)")
         kept_questions = [e for e in initial_entries if e.get("keep_final")]
