@@ -1,5 +1,6 @@
 """Pydantic models and parsing helpers used across the pipeline."""
 
+import re
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, ValidationError
@@ -13,6 +14,7 @@ class ProtoQuestion(BaseModel):
     candidate_source: str = Field(default="", alias="candidate_source")
     rating: str = ""
     rating_rationale: str = ""
+    raw_block: str = ""
 
 
 class JudgeKeepResult(BaseModel):
@@ -52,7 +54,20 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
     questions: List[ProtoQuestion] = []
     current: Optional[Dict[str, Any]] = None
     question_lines: List[str] = []
+    block_lines: List[str] = []
     capturing_question = False
+
+    header_patterns = [
+        re.compile(r"^QUESTION\s+\d+", re.IGNORECASE),
+        re.compile(r"^Q\s*\d+\b", re.IGNORECASE),
+    ]
+
+    def is_question_header(line: str) -> bool:
+        normalized = line.lstrip("#*- \t").strip()
+        for pat in header_patterns:
+            if pat.match(normalized):
+                return True
+        return False
 
     def finalize_question():
         nonlocal question_lines, capturing_question
@@ -81,11 +96,17 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
         capturing_question = False
 
     def push_current():
-        nonlocal current
+        nonlocal current, block_lines
         if not current:
             return
         if capturing_question:
             finalize_question()
+        raw_block_val = "\n".join([ln for ln in block_lines if str(ln).strip()]).strip()
+        if raw_block_val:
+            current["raw_block"] = raw_block_val
+        # If the model forgot to include the question body, fall back to the title to keep the block usable.
+        if not current.get("question") and current.get("title"):
+            current["question"] = f"Title: {current['title']}"
         # Enforce a default rating if missing to keep downstream displays populated
         rating_val = (current or {}).get("rating", "").strip()
         if rating_val.upper() not in {"PUBLISHABLE", "SOFT REJECT", "HARD REJECT"}:
@@ -100,12 +121,13 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
             except ValidationError:
                 pass
         current = None
+        block_lines = []
 
     for raw in lines:
         line = raw.strip()
         if not line:
             continue
-        if line.upper().startswith("QUESTION "):
+        if is_question_header(line):
             push_current()
             current = {
                 "role": "VARIANT",
@@ -116,9 +138,23 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
                 "rating": "",
                 "rating_rationale": "",
             }
+            block_lines = [raw]
+            continue
+        if current is None and line.lower().startswith("title:"):
+            current = {
+                "role": "VARIANT",
+                "angle": "",
+                "title": line.split(":", 1)[1].strip(),
+                "question": "",
+                "candidate_source": "",
+                "rating": "",
+                "rating_rationale": "",
+            }
+            block_lines = [raw]
             continue
         if current is None:
             continue
+        block_lines.append(raw)
         lower = line.lower()
 
         # If we are capturing the Question block and encounter a new section label, finalize the question first
@@ -160,6 +196,31 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
             current["candidate_source"] = line.split(":", 1)[1].strip()
 
     push_current()
+
+    # Fallback: if nothing was parsed, salvage a single block from the raw text so downstream
+    # steps do not fail hard. This keeps the raw content for a later cleanup pass.
+    if not questions and text.strip():
+        first_non_empty = next((ln.strip() for ln in lines if ln.strip()), "(untitled)")
+        fallback_title = first_non_empty[:120] or "(untitled)"
+        fallback_question = text.strip()
+        try:
+            questions.append(
+                ProtoQuestion(
+                    role="VARIANT",
+                    angle="",
+                    title=fallback_title,
+                    question=fallback_question,
+                    candidate_source="",
+                    rating="Hard Reject",
+                    rating_rationale=(
+                        "Generation failed structured parse; preserved raw block for cleanup by final model."
+                    ),
+                    raw_block=fallback_question,
+                )
+            )
+        except ValidationError:
+            pass
+
     return questions
 
 
