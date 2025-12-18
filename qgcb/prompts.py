@@ -113,7 +113,7 @@ SOURCE_USER_TMPL = textwrap.dedent(
 # ---------------------- GÉNÉRATION DE QUESTIONS (N questions) ----------------------
 
 GEN_SYS_INITIAL = """
-You generate CLUSTERS of proto forecasting questions for Metaculus.
+You generate CLUSTERS of proto forecasting questions for Metaculus. Be fast: skip deliberation and emit the required blocks immediately.
 
 Your output is parsed by a STRICT machine.
 If you deviate from the required format, THE OUTPUT IS DISCARDED.
@@ -147,28 +147,15 @@ Content constraints:
   similarly named pages exist, pick the most authoritative one and add a short disambiguation
   cue (e.g., "use the 2024 IMF WEO October database country table for GDP, not earlier editions").
 
-STRICT FORMAT (LINE-BASED, WITH METACULUS STRUCTURE INSIDE THE QUESTION BLOCK)
+STRICT FORMAT (LINE-BASED AND LIGHTWEIGHT)
 For each i = 1..N you output a block with these lines (use EXACT labels):
 
 QUESTION i
 Role: CORE or VARIANT
 Title: <short title, <= 100 characters, single line>
-Question: Title: <repeat title here>
-  Resolution Criteria: <explicit, time-bounded, testable resolution event; include exact formulae and baselines>
-  Fine Print: <short sentences (no bullet points) covering exclusions, boundary behaviour, delayed/non-announced events, and a single authoritative resolution source with a named backup>
-  Rating: <Publishable | Soft Reject | Hard Reject>
-  Rationale: <2–4 sentences, objective justification for the rating>
+Question: <2–4 sentences that fully specify the resolution criteria, time bounds, actors, units, and fallback handling; do not add ratings>
 Angle: <short phrase capturing the angle within the cluster>
-Candidate-source: <precise public page(s) or endpoint to resolve, with disambiguation if needed>
-
-Additional generation rules (APPLY WITHIN THE QUESTION BLOCK):
-- Remove ambiguity on time horizons: cite exact announcement date vs implementation date, and the resolution date/timezone.
-- State explicit baselines/denominators/units for any percentage, currency, or rate; if comparing to a past value, name the reference year/figure.
-- Define fallback behaviour: what happens if the event is not announced, delayed, annulled, or partially implemented.
-- Specify actors precisely (e.g., "U.S. Department of Energy" rather than "the government"), and specify which publications count as official.
-- Candidate-source MUST name two or three precise public sources and, in one short sentence, explain how they will be used to resolve the question.
-- Do NOT output any scoring or meta-evaluation fields (e.g., resolvability scores, information value, VOI, decision impact) beyond the Rating + Rationale requested.
-- Keep the Rating section at the end and include exactly ONE rating per question.
+Candidate-source: <two or three precise public pages or endpoints to resolve, with one short use note>
 
 Between blocks you MAY optionally have a single blank line.
 You MUST NOT output anything else before, between, or after the blocks.
@@ -204,7 +191,7 @@ GEN_USER_TMPL_INITIAL = textwrap.dedent(
       consistent with the resolution hints + a chatbot with web access; if you cannot, do not output it.
 
     Output ONLY the blocks in the EXACT format specified in the system message.
-    Do NOT restate the instructions. Do NOT explain your choices.
+    Do NOT restate the instructions. Do NOT explain your choices. Work quickly and avoid any extra wording.
     """
 )
 
@@ -258,7 +245,7 @@ RESOLUTION_CARD_USER_TMPL = textwrap.dedent(
 # ---------------------- JUDGE LIGHT (keep K parmi N) ----------------------
 
 JUDGE_SYS_KEEP = """
-You are a FAST, STRICT judge for proto forecasting questions, with an OBSESSION for resolvability.
+You are a FAST, STRICT judge for proto forecasting questions, with an OBSESSION for resolvability. Respond immediately; do not waste time.
 
 Your ONLY task is to decide whether to KEEP or DISCARD ONE question, based on:
 - resolvability from PUBLIC sources (this is the PRIMARY criterion),
