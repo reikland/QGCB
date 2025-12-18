@@ -14,6 +14,7 @@ class ProtoQuestion(BaseModel):
     candidate_source: str = Field(default="", alias="candidate_source")
     rating: str = ""
     rating_rationale: str = ""
+    raw_block: str = ""
 
 
 class JudgeKeepResult(BaseModel):
@@ -53,6 +54,7 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
     questions: List[ProtoQuestion] = []
     current: Optional[Dict[str, Any]] = None
     question_lines: List[str] = []
+    block_lines: List[str] = []
     capturing_question = False
 
     header_patterns = [
@@ -94,11 +96,14 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
         capturing_question = False
 
     def push_current():
-        nonlocal current
+        nonlocal current, block_lines
         if not current:
             return
         if capturing_question:
             finalize_question()
+        raw_block_val = "\n".join([ln for ln in block_lines if str(ln).strip()]).strip()
+        if raw_block_val:
+            current["raw_block"] = raw_block_val
         # If the model forgot to include the question body, fall back to the title to keep the block usable.
         if not current.get("question") and current.get("title"):
             current["question"] = f"Title: {current['title']}"
@@ -116,6 +121,7 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
             except ValidationError:
                 pass
         current = None
+        block_lines = []
 
     for raw in lines:
         line = raw.strip()
@@ -132,6 +138,19 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
                 "rating": "",
                 "rating_rationale": "",
             }
+            block_lines = [raw]
+            continue
+        if current is None and line.lower().startswith("title:"):
+            current = {
+                "role": "VARIANT",
+                "angle": "",
+                "title": line.split(":", 1)[1].strip(),
+                "question": "",
+                "candidate_source": "",
+                "rating": "",
+                "rating_rationale": "",
+            }
+            block_lines = [raw]
             continue
         if current is None and line.lower().startswith("title:"):
             current = {
@@ -146,6 +165,7 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
             continue
         if current is None:
             continue
+        block_lines.append(raw)
         lower = line.lower()
 
         # If we are capturing the Question block and encounter a new section label, finalize the question first

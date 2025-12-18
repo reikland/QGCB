@@ -362,6 +362,7 @@ if run_button:
                                         "angle": q.angle,
                                         "title": q.title,
                                         "question": q.question,
+                                        "raw_question_block": getattr(q, "raw_block", ""),
                                         "candidate_source": q.candidate_source,
                                         "rating": rating_val,
                                         "rating_rationale": rating_rationale_val,
@@ -536,6 +537,7 @@ else:
                     "rating",
                     "rating_rationale",
                     "judge_rationale",
+                    "raw_question_block",
                 ]
             ].copy()
 
@@ -614,6 +616,15 @@ else:
                     st.code(f"{row['id']}: {row['judge_raw_line']}", language="text")
             else:
                 st.caption("No judge lines available.")
+
+            st.markdown("**Raw question blocks (as parsed, before cleanup):**")
+            if not df_init.empty:
+                for _, row in df_init[["id", "raw_question_block"]].iterrows():
+                    if not row["raw_question_block"]:
+                        continue
+                    st.code(f"{row['id']}\n{row['raw_question_block']}", language="text")
+            else:
+                st.caption("No parsed question blocks available.")
 
         st.subheader("Download CSV")
         if df_init.empty or df_init_for_download is None:
