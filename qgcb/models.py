@@ -19,6 +19,8 @@ class JudgeKeepResult(BaseModel):
     """Structured representation of the judge's single-line output."""
 
     keep: int = 0
+    verdict: str = ""
+    verdict_rationale: str = ""
     resolvability: int = 0
     info: int = 0
     decision_impact: float = 0.0
@@ -164,7 +166,7 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
 def parse_judge_keep_line(line: str) -> JudgeKeepResult:
     """
     Parse:
-      keep=0|1; resolvability=X; info=Y; decision_impact=D; voi=V; minutes_to_resolve=R; rationale=TEXT
+      keep=0|1; rating=Publishable|Soft Reject|Hard Reject; resolvability=X; info=Y; decision_impact=D; voi=V; minutes_to_resolve=R; rationale=TEXT
     into a JudgeKeepResult.
     """
 
@@ -189,6 +191,16 @@ def parse_judge_keep_line(line: str) -> JudgeKeepResult:
         except Exception:
             return default
 
+    def normalize_verdict(val: str) -> str:
+        low = val.strip().lower()
+        if low.startswith("pub"):
+            return "Publishable"
+        if low.startswith("soft"):
+            return "Soft Reject"
+        if low.startswith("hard"):
+            return "Hard Reject"
+        return ""
+
     keep = to_int("keep", 0)
     if keep not in (0, 1):
         keep = 0
@@ -202,8 +214,20 @@ def parse_judge_keep_line(line: str) -> JudgeKeepResult:
     if len(rationale) > 300:
         rationale = rationale[:300]
 
+    verdict_raw = mapping.get("rating") or mapping.get("verdict") or ""
+    verdict = normalize_verdict(verdict_raw)
+    verdict_rationale = mapping.get("rating_rationale") or mapping.get("verdict_rationale") or rationale
+    verdict_rationale = (verdict_rationale or "").replace(";", ",").strip()
+    if len(verdict_rationale) > 400:
+        verdict_rationale = verdict_rationale[:400]
+
+    if not verdict:
+        verdict = "Publishable" if keep == 1 and resolvability >= 4 and info >= 3 else "Hard Reject"
+
     return JudgeKeepResult(
         keep=keep,
+        verdict=verdict,
+        verdict_rationale=verdict_rationale,
         resolvability=resolvability,
         info=info,
         decision_impact=decision_impact,

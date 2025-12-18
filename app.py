@@ -346,6 +346,13 @@ if run_button:
                                 id_map[idx_q] = q_id
                                 jr = judge_res0[idx_q]
                                 p_id = all_prompt_ids[idx_q]
+                                rating_val = (q.rating or jr.verdict or "").strip()
+                                rating_rationale_val = (
+                                    q.rating_rationale
+                                    or jr.verdict_rationale
+                                    or jr.rationale
+                                    or ""
+                                ).strip()
                                 initial_entries.append(
                                     {
                                         "id": q_id,
@@ -356,14 +363,16 @@ if run_button:
                                         "title": q.title,
                                         "question": q.question,
                                         "candidate_source": q.candidate_source,
-                                        "rating": getattr(q, "rating", ""),
-                                        "rating_rationale": getattr(q, "rating_rationale", ""),
+                                        "rating": rating_val,
+                                        "rating_rationale": rating_rationale_val,
                                         "judge_keep": jr.keep,
                                         "judge_resolvability": jr.resolvability,
                                         "judge_info": jr.info,
                                         "judge_decision_impact": jr.decision_impact,
                                         "judge_voi": jr.voi,
                                         "judge_minutes_to_resolve": jr.minutes_to_resolve,
+                                        "judge_verdict": jr.verdict,
+                                        "judge_verdict_rationale": jr.verdict_rationale,
                                         "judge_rationale": jr.rationale,
                                         "judge_raw_line": jr.raw_line,
                                         "keep_final": bool(keep_final_flags[idx_q]),
@@ -518,6 +527,8 @@ else:
                     "judge_decision_impact",
                     "judge_voi",
                     "judge_minutes_to_resolve",
+                    "judge_verdict",
+                    "judge_verdict_rationale",
                     "title",
                     "question",
                     "candidate_source",
@@ -563,6 +574,8 @@ else:
                             f"- **Decision impact:** {row['judge_decision_impact']:.2f}  \n"
                             f"- **VOI:** {row['judge_voi']:.2f}  \n"
                             f"- **Minutes to resolve:** {row['judge_minutes_to_resolve']:.1f}  \n"
+                            f"- **Judge verdict:** {row.get('judge_verdict', '') or '(unspecified)'}  \n"
+                            f"- **Verdict rationale:** {row.get('judge_verdict_rationale', '') or row['judge_rationale']}  \n"
                             f"- **Rationale:** {row['judge_rationale']}  \n"
                             f"- **Candidate source (generator hint):** {row['candidate_source']}  \n"
                             f"- **Sources to use for resolution:**\n{src_block}"

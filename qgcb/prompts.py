@@ -258,90 +258,50 @@ RESOLUTION_CARD_USER_TMPL = textwrap.dedent(
 # ---------------------- JUDGE LIGHT (keep K parmi N) ----------------------
 
 JUDGE_SYS_KEEP = """
-You are a FAST, STRICT judge for proto forecasting questions, with an OBSESSION for resolvability.
+You are a FAST, STRICT judge. Priorities in order: resolvability from PUBLIC sources, then information value, then speed to resolve.
 
-Your ONLY task is to decide whether to KEEP or DISCARD ONE question, based on:
-- resolvability from PUBLIC sources (this is the PRIMARY criterion),
-- information value for forecasting and decision-making (secondary),
-- practical solvability.
+You MUST output ONE line only:
+keep=0|1; rating=Publishable|Soft Reject|Hard Reject; resolvability=X; info=Y; decision_impact=D; voi=V; minutes_to_resolve=R; rationale=TEXT
 
-Practical solvability:
-- Imagine a careful forecaster working with a general-purpose chatbot + web search.
-- Once the resolution date has passed, that team should be able to fully resolve the question in <= 15 minutes.
-- If you cannot see a concrete, realistic path to resolution within that constraint, resolvability is LOW.
+Rules (keep it short):
+- X,Y are integers 1–5. D is a float 0–1. V,R are floats (R in minutes).
+- rating must be exactly Publishable, Soft Reject, or Hard Reject.
+- rationale <=200 chars, no semicolons; justify BOTH keep and rating.
+- First characters MUST be "keep=". No extra lines, JSON, or markdown.
 
-You MUST output EXACTLY ONE LINE, with this format:
-
-keep=0|1; resolvability=X; info=Y; decision_impact=D; voi=V; minutes_to_resolve=R; rationale=TEXT
-
-Hard constraints:
-- X and Y MUST be integers from 1 to 5.
-- D MUST be a float between 0 and 1 (0 = no impact on decisions for an average global citizen, 1 = very high impact).
-- V and R MUST be floats (V unbounded, higher = higher value of information; R >= 0, in minutes, lower = easier to resolve).
-- rationale MUST be <= 200 characters and MUST NOT contain semicolons.
-- The very first non-space characters of your reply MUST be "keep=".
-- You MUST NOT add any other lines, JSON, markdown, or commentary.
-- No bullet lists. No explanations before or after the line.
-- If you are unsure, choose a reasonable guess and still follow the format.
-
-Scoring hints:
-- First, briefly check whether the question is LIKELY ALREADY RESOLVED as of your knowledge; if yes,
-  set keep=0 and resolvability=0 or 1.
-- resolvability: 1 = barely or not resolvable in practice; 5 = clearly resolvable from stable public sources
-  with a simple, fast procedure.
-- info: 1 = almost no useful information for real decisions; 5 = high value-of-information for policies,
-  investment, planning, or safety.
-- decision_impact: think of a random global citizen; 0 = knowing the answer would not change any behaviour,
-  1 = knowing the answer would clearly change important behaviours or choices.
-- voi: approximate value of information relative to important metrics (economic, risk, or parent-question
-  uncertainty); higher = better.
-- minutes_to_resolve: rough estimate of how long it would take a competent human or AI agent with web access
-  to resolve the question once the resolution date has passed.
-
-Decision rule (VERY STRICT):
-- If resolvability <= 3, you MUST set keep=0, even if information value is high.
-- keep=1 ONLY if:
-  * the question is clearly resolvable from public sources,
-  * a careful forecaster with a chatbot + web could actually resolve it in <= 15 minutes after the resolution date,
-  * AND resolvability >= 4,
-  * AND the information value is at least moderate (info >= 3).
-- Otherwise keep=0.
+Decision test (strict):
+- If the question is likely already resolved OR resolvability <=3 → keep=0.
+- keep=1 only if resolvability >=4 AND info >=3 AND a forecaster with chatbot+web could fully resolve it in <=15 minutes using public sources.
 """.strip()
 
 JUDGE_USER_TMPL_KEEP = textwrap.dedent(
     """
-    You are judging the following proto forecasting question.
+    Judge this proto forecasting question.
 
-    Context (root seed, mutated prompt, resolution hints):
+    Context (seed + mutated prompt + sources):
     {seed}
 
-    Horizon:
-    {horizon}
-
-    Domain tags (optional):
-    {tags}
+    Horizon: {horizon}
+    Domain tags: {tags}
 
     Proto-question:
     Title: {title}
     Question: {question}
     Candidate-source: {source}
 
-    Decision rule (SUPER STRICT on resolvability):
-    - If resolvability <= 3, you MUST set keep=0.
-    - keep=1 ONLY if:
-      * clearly resolvable from PUBLIC sources,
-      * practically solvable in <= 15 minutes with a chatbot + web after the resolution date,
-      * resolvability >= 4,
-      * info >= 3.
+    Decision rule (strict):
+    - If resolvability <=3 → keep=0.
+    - keep=1 only if resolvability >=4, info >=3, and a chatbot+web user can resolve in <=15 minutes from PUBLIC sources.
 
-    Additional scoring dimensions (do NOT change the keep rule):
-    - decision_impact: 0–1, impact on decisions for a random global citizen if the answer were known.
-    - voi: float, overall value of information of this question; higher = better.
-    - minutes_to_resolve: float, approximate minutes needed to resolve the question once the resolution date has passed;
-      lower = better.
+    Extra fields (do not change the rule):
+    - decision_impact: 0–1
+    - voi: float
+    - minutes_to_resolve: float (minutes)
 
-    Now output ONLY the single line:
-    keep=0|1; resolvability=X; info=Y; decision_impact=D; voi=V; minutes_to_resolve=R; rationale=TEXT
+    Always assign rating + short rationale even when keep=0.
+
+    Output exactly:
+    keep=0|1; rating=Publishable|Soft Reject|Hard Reject; resolvability=X; info=Y; decision_impact=D; voi=V; minutes_to_resolve=R; rationale=TEXT
     """
 )
 
