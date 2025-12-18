@@ -510,7 +510,7 @@ else:
             st.caption(
                 "Root seed (p0) and mutated prompts (p1, p2, ...) with associated public resolution sources."
             )
-            st.dataframe(df_prompts_view, use_container_width=True)
+            st.dataframe(df_prompts_view, width="stretch")
         else:
             st.info("No prompts recorded.")
 
@@ -546,7 +546,7 @@ else:
                 "(resolvability, info, decision impact, VOI, minutes_to_resolve) "
                 "and final selection flag (keep_final)."
             )
-            st.dataframe(df_init_view, use_container_width=True)
+            st.dataframe(df_init_view, width="stretch")
 
             df_init_for_download = df_init_view.copy()
             df_init_for_download["seed"] = seed
@@ -626,6 +626,8 @@ else:
             else:
                 st.caption("No parsed question blocks available.")
 
+        kept_questions = [e for e in initial_entries if e.get("keep_final")]
+
         st.subheader("Download CSV")
         if df_init.empty or df_init_for_download is None:
             st.caption("No proto-questions available for download.")
@@ -663,7 +665,6 @@ else:
                 )
 
         st.subheader("Follow-up chat (GPT‑5 with kept questions)")
-        kept_questions = [e for e in initial_entries if e.get("keep_final")]
         if kept_questions:
             with st.expander("Kept questions (keep_final = True)", expanded=False):
                 for e in kept_questions:
@@ -697,6 +698,7 @@ else:
 
         col_chat_controls = st.columns([4, 1])
         with col_chat_controls[1]:
+            if st.button("Reset chat", width="stretch"):
             if st.button("Reset chat", use_container_width=True):
                 st.session_state["refine_chat_history"] = []
 
