@@ -328,14 +328,17 @@ def judge_one_question_keep(
         decision_impact = random.random()
         voi = random.uniform(0.0, 5.0)
         minutes_to_resolve = random.uniform(1.0, 30.0)
+        verdict = "Publishable" if keep else "Hard Reject"
         rationale = "Mock judge (dry run)."
         raw_line = (
-            f"keep={keep}; resolvability={resolvability}; info={info}; "
+            f"keep={keep}; rating={verdict}; resolvability={resolvability}; info={info}; "
             f"decision_impact={decision_impact:.2f}; voi={voi:.2f}; "
             f"minutes_to_resolve={minutes_to_resolve:.2f}; rationale={rationale}"
         )
         return JudgeKeepResult(
             keep=keep,
+            verdict=verdict,
+            verdict_rationale=rationale,
             resolvability=resolvability,
             info=info,
             decision_impact=decision_impact,

@@ -272,17 +272,18 @@ Practical solvability:
 
 You MUST output EXACTLY ONE LINE, with this format:
 
-keep=0|1; resolvability=X; info=Y; decision_impact=D; voi=V; minutes_to_resolve=R; rationale=TEXT
+keep=0|1; rating=Publishable|Soft Reject|Hard Reject; resolvability=X; info=Y; decision_impact=D; voi=V; minutes_to_resolve=R; rationale=TEXT
 
 Hard constraints:
 - X and Y MUST be integers from 1 to 5.
 - D MUST be a float between 0 and 1 (0 = no impact on decisions for an average global citizen, 1 = very high impact).
 - V and R MUST be floats (V unbounded, higher = higher value of information; R >= 0, in minutes, lower = easier to resolve).
-- rationale MUST be <= 200 characters and MUST NOT contain semicolons.
+- rating MUST be exactly one of: Publishable, Soft Reject, Hard Reject.
+- rationale MUST be <= 200 characters and MUST NOT contain semicolons. It should concisely justify the rating + keep decision.
 - The very first non-space characters of your reply MUST be "keep=".
 - You MUST NOT add any other lines, JSON, markdown, or commentary.
 - No bullet lists. No explanations before or after the line.
-- If you are unsure, choose a reasonable guess and still follow the format.
+- If you are unsure, choose a reasonable guess and still follow the format. Never omit the rating field.
 
 Scoring hints:
 - First, briefly check whether the question is LIKELY ALREADY RESOLVED as of your knowledge; if yes,
@@ -340,8 +341,12 @@ JUDGE_USER_TMPL_KEEP = textwrap.dedent(
     - minutes_to_resolve: float, approximate minutes needed to resolve the question once the resolution date has passed;
       lower = better.
 
+    You MUST always assign a publication verdict and short justification even if keep=0:
+    - rating: Publishable | Soft Reject | Hard Reject
+    - rationale: 1–3 sentences (<=200 chars) justifying BOTH the keep value and the rating.
+
     Now output ONLY the single line:
-    keep=0|1; resolvability=X; info=Y; decision_impact=D; voi=V; minutes_to_resolve=R; rationale=TEXT
+    keep=0|1; rating=Publishable|Soft Reject|Hard Reject; resolvability=X; info=Y; decision_impact=D; voi=V; minutes_to_resolve=R; rationale=TEXT
     """
 )
 
