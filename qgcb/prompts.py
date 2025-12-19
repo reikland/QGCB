@@ -132,6 +132,7 @@ CLUSTER BEHAVIOUR
 - Produce a coherent cluster of N related proto-questions.
 - 1–2 questions should be broad "anchor" questions about the central theme (Role=CORE).
 - The remaining questions should be narrower "variants" exploring different angles (Role=VARIANT).
+- Question types MUST follow the requested distribution (binary / numeric / multiple_choice).
 
 Content constraints:
 - Questions must be about an uncertain future or an as-yet-unobserved outcome.
@@ -146,6 +147,18 @@ Content constraints:
   (dataset + table/report name, edition/year, and URL or platform path if known). If several
   similarly named pages exist, pick the most authoritative one and add a short disambiguation
   cue (e.g., "use the 2024 IMF WEO October database country table for GDP, not earlier editions").
+- Type must be one of: binary, numeric, multiple_choice.
+- For numeric questions:
+  - Provide a reasonable Range-min/Range-max and set Open-lower-bound / Open-upper-bound to true/false.
+  - Use inbound_outcome_count=200 unless the question resolves to a small integer range (e.g., 0–7),
+    in which case inbound_outcome_count should equal the number of distinct integer outcomes (e.g., 8).
+  - If the scale is log-like, set Zero-point to a number below Range-min; otherwise leave Zero-point blank.
+- For multiple_choice questions:
+  - Provide Options as a pipe-separated list, and Group-variable as the type of thing being chosen.
+- For binary questions:
+  - Leave Options/Group-variable/Range-min/Range-max/Zero-point/Open-* /Unit blank.
+- Question-weight should be 1 unless the question's resolution is significantly correlated with another
+  question in the cluster, in which case set a value below 1.
 
 STRICT FORMAT (LINE-BASED AND LIGHTWEIGHT)
 For each i = 1..N you output a block with these lines (use EXACT labels):
@@ -155,6 +168,17 @@ Role: CORE or VARIANT
 Title: <short title, <= 100 characters, single line>
 Question: <2–4 sentences that fully specify the resolution criteria, time bounds, actors, units, and fallback handling; do not add ratings>
 Angle: <short phrase capturing the angle within the cluster>
+Question-weight: <float; use 1 unless correlated with another question>
+Type: <binary|numeric|multiple_choice>
+Inbound-outcome-count: <integer; required for numeric only, blank otherwise>
+Options: <pipe-separated options; required for multiple_choice only, blank otherwise>
+Group-variable: <type of thing chosen; required for multiple_choice only, blank otherwise>
+Range-min: <numeric minimum; required for numeric only, blank otherwise>
+Range-max: <numeric maximum; required for numeric only, blank otherwise>
+Zero-point: <numeric; only if log-scaled, blank otherwise>
+Open-lower-bound: <true|false; required for numeric only, blank otherwise>
+Open-upper-bound: <true|false; required for numeric only, blank otherwise>
+Unit: <display unit; required for numeric only, blank otherwise>
 Candidate-source: <two or three precise public pages or endpoints to resolve, with one short use note>
 
 Between blocks you MAY optionally have a single blank line.
@@ -169,6 +193,10 @@ GEN_USER_TMPL_INITIAL = textwrap.dedent(
     - N_questions = {n}.
     - You MUST output EXACTLY N_questions blocks, labelled QUESTION 1, QUESTION 2, ..., QUESTION {n}.
     - Any extra text or missing block makes the output INVALID.
+    - Type distribution for this cluster MUST be:
+      - binary: {n_binary}
+      - numeric: {n_numeric}
+      - multiple_choice: {n_multiple_choice}
 
     Root seed (global theme, do NOT restate it):
     {seed}
