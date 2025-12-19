@@ -28,12 +28,61 @@ from qgcb.prompts import (
 # Mock helpers (dry_run)
 # ---------------------------------------------------------------------------
 
+def _allocate_question_types(n: int) -> Dict[str, int]:
+    proportions = {
+        "binary": 0.5,
+        "numeric": 0.3,
+        "multiple_choice": 0.2,
+    }
+    base = {key: int(n * pct) for key, pct in proportions.items()}
+    remainder = n - sum(base.values())
+    if remainder > 0:
+        fractions = {
+            key: (n * pct) - base[key]
+            for key, pct in proportions.items()
+        }
+        for key, _ in sorted(fractions.items(), key=lambda item: item[1], reverse=True):
+            if remainder <= 0:
+                break
+            base[key] += 1
+            remainder -= 1
+    return base
+
+
 def mock_proto_questions(seed: str, n: int) -> List[ProtoQuestion]:
     out: List[ProtoQuestion] = []
     prefix = seed.strip().split("\n")[0][:60] or "Example topic"
+    type_counts = _allocate_question_types(n)
+    type_sequence: List[str] = (
+        ["binary"] * type_counts["binary"]
+        + ["numeric"] * type_counts["numeric"]
+        + ["multiple_choice"] * type_counts["multiple_choice"]
+    )
+    if len(type_sequence) < n:
+        type_sequence.extend(["binary"] * (n - len(type_sequence)))
     for i in range(n):
         role = "CORE" if i < 2 else "VARIANT"
         angle = "anchor question" if i < 2 else f"variant angle #{i}"
+        q_type = type_sequence[i]
+        inbound_outcome_count = None
+        options = ""
+        group_variable = ""
+        range_min = None
+        range_max = None
+        zero_point = None
+        open_lower_bound = None
+        open_upper_bound = None
+        unit = ""
+        if q_type == "numeric":
+            inbound_outcome_count = 200
+            range_min = 0.0
+            range_max = 100.0
+            open_lower_bound = False
+            open_upper_bound = False
+            unit = "units"
+        elif q_type == "multiple_choice":
+            options = "Option A|Option B|Option C"
+            group_variable = "category"
         out.append(
             ProtoQuestion(
                 role=role,
@@ -46,6 +95,16 @@ def mock_proto_questions(seed: str, n: int) -> List[ProtoQuestion]:
                     "\nRating: Publishable"\
                     "\nRationale: Dry-run placeholder for testing formatting."
                 ),
+                type=q_type,
+                inbound_outcome_count=inbound_outcome_count,
+                options=options,
+                group_variable=group_variable,
+                range_min=range_min,
+                range_max=range_max,
+                zero_point=zero_point,
+                open_lower_bound=open_lower_bound,
+                open_upper_bound=open_upper_bound,
+                unit=unit,
                 candidate_source="Mock dataset / World Bank / Reuters",
                 rating="Publishable",
                 rating_rationale="Dry-run placeholder for testing formatting.",
@@ -215,9 +274,13 @@ def generate_initial_questions(
     while len(all_questions) < n and attempts < max_attempts:
         attempts += 1
         need = n - len(all_questions)
+        type_counts = _allocate_question_types(need)
 
         user_prompt = GEN_USER_TMPL_INITIAL.format(
             n=need,
+            n_binary=type_counts["binary"],
+            n_numeric=type_counts["numeric"],
+            n_multiple_choice=type_counts["multiple_choice"],
             seed=seed.strip(),
             prompt_text=prompt_text.strip() or "(see seed context above)",
             resolution_hints=resolution_hints.strip() or "(see seed context above)",
