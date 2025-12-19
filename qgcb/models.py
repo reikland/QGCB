@@ -11,6 +11,16 @@ class ProtoQuestion(BaseModel):
     angle: str = ""
     title: str
     question: str
+    type: str = ""
+    inbound_outcome_count: Optional[int] = None
+    options: str = ""
+    group_variable: str = ""
+    range_min: Optional[float] = None
+    range_max: Optional[float] = None
+    zero_point: Optional[float] = None
+    open_lower_bound: Optional[bool] = None
+    open_upper_bound: Optional[bool] = None
+    unit: str = ""
     candidate_source: str = Field(default="", alias="candidate_source")
     rating: str = ""
     rating_rationale: str = ""
@@ -61,6 +71,28 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
         re.compile(r"^QUESTION\s+\d+", re.IGNORECASE),
         re.compile(r"^Q\s*\d+\b", re.IGNORECASE),
     ]
+
+    def parse_int(val: str) -> Optional[int]:
+        try:
+            return int(val)
+        except (TypeError, ValueError):
+            return None
+
+    def parse_float(val: str) -> Optional[float]:
+        try:
+            return float(val)
+        except (TypeError, ValueError):
+            return None
+
+    def parse_bool(val: str) -> Optional[bool]:
+        if val is None:
+            return None
+        lowered = val.strip().lower()
+        if lowered in {"true", "yes", "1"}:
+            return True
+        if lowered in {"false", "no", "0"}:
+            return False
+        return None
 
     def is_question_header(line: str) -> bool:
         normalized = line.lstrip("#*- \t").strip()
@@ -134,6 +166,16 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
                 "angle": "",
                 "title": "",
                 "question": "",
+                "type": "",
+                "inbound_outcome_count": None,
+                "options": "",
+                "group_variable": "",
+                "range_min": None,
+                "range_max": None,
+                "zero_point": None,
+                "open_lower_bound": None,
+                "open_upper_bound": None,
+                "unit": "",
                 "candidate_source": "",
                 "rating": "",
                 "rating_rationale": "",
@@ -146,6 +188,16 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
                 "angle": "",
                 "title": line.split(":", 1)[1].strip(),
                 "question": "",
+                "type": "",
+                "inbound_outcome_count": None,
+                "options": "",
+                "group_variable": "",
+                "range_min": None,
+                "range_max": None,
+                "zero_point": None,
+                "open_lower_bound": None,
+                "open_upper_bound": None,
+                "unit": "",
                 "candidate_source": "",
                 "rating": "",
                 "rating_rationale": "",
@@ -158,6 +210,16 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
                 "angle": "",
                 "title": line.split(":", 1)[1].strip(),
                 "question": "",
+                "type": "",
+                "inbound_outcome_count": None,
+                "options": "",
+                "group_variable": "",
+                "range_min": None,
+                "range_max": None,
+                "zero_point": None,
+                "open_lower_bound": None,
+                "open_upper_bound": None,
+                "unit": "",
                 "candidate_source": "",
                 "rating": "",
                 "rating_rationale": "",
@@ -173,6 +235,16 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
             lower.startswith("angle:")
             or lower.startswith("candidate-source:")
             or lower.startswith("role:")
+            or lower.startswith("type:")
+            or lower.startswith("inbound-outcome-count:")
+            or lower.startswith("options:")
+            or lower.startswith("group-variable:")
+            or lower.startswith("range-min:")
+            or lower.startswith("range-max:")
+            or lower.startswith("zero-point:")
+            or lower.startswith("open-lower-bound:")
+            or lower.startswith("open-upper-bound:")
+            or lower.startswith("unit:")
         ):
             finalize_question()
 
@@ -203,6 +275,38 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
             current["rating_rationale"] = line.split(":", 1)[1].strip()
         elif lower.startswith("angle:"):
             current["angle"] = line.split(":", 1)[1].strip()
+        elif lower.startswith("type:"):
+            current["type"] = line.split(":", 1)[1].strip()
+        elif lower.startswith("inbound-outcome-count:"):
+            val = parse_int(line.split(":", 1)[1].strip())
+            if val is not None:
+                current["inbound_outcome_count"] = val
+        elif lower.startswith("options:"):
+            current["options"] = line.split(":", 1)[1].strip()
+        elif lower.startswith("group-variable:"):
+            current["group_variable"] = line.split(":", 1)[1].strip()
+        elif lower.startswith("range-min:"):
+            val = parse_float(line.split(":", 1)[1].strip())
+            if val is not None:
+                current["range_min"] = val
+        elif lower.startswith("range-max:"):
+            val = parse_float(line.split(":", 1)[1].strip())
+            if val is not None:
+                current["range_max"] = val
+        elif lower.startswith("zero-point:"):
+            val = parse_float(line.split(":", 1)[1].strip())
+            if val is not None:
+                current["zero_point"] = val
+        elif lower.startswith("open-lower-bound:"):
+            val = parse_bool(line.split(":", 1)[1].strip())
+            if val is not None:
+                current["open_lower_bound"] = val
+        elif lower.startswith("open-upper-bound:"):
+            val = parse_bool(line.split(":", 1)[1].strip())
+            if val is not None:
+                current["open_upper_bound"] = val
+        elif lower.startswith("unit:"):
+            current["unit"] = line.split(":", 1)[1].strip()
         elif lower.startswith("candidate-source:"):
             current["candidate_source"] = line.split(":", 1)[1].strip()
 
