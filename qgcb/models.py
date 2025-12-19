@@ -11,6 +11,7 @@ class ProtoQuestion(BaseModel):
     angle: str = ""
     title: str
     question: str
+    question_weight: float = 1.0
     type: str = ""
     inbound_outcome_count: Optional[int] = None
     options: str = ""
@@ -166,6 +167,7 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
                 "angle": "",
                 "title": "",
                 "question": "",
+                "question_weight": 1.0,
                 "type": "",
                 "inbound_outcome_count": None,
                 "options": "",
@@ -188,6 +190,7 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
                 "angle": "",
                 "title": line.split(":", 1)[1].strip(),
                 "question": "",
+                "question_weight": 1.0,
                 "type": "",
                 "inbound_outcome_count": None,
                 "options": "",
@@ -210,6 +213,7 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
                 "angle": "",
                 "title": line.split(":", 1)[1].strip(),
                 "question": "",
+                "question_weight": 1.0,
                 "type": "",
                 "inbound_outcome_count": None,
                 "options": "",
@@ -235,6 +239,7 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
             lower.startswith("angle:")
             or lower.startswith("candidate-source:")
             or lower.startswith("role:")
+            or lower.startswith("question-weight:")
             or lower.startswith("type:")
             or lower.startswith("inbound-outcome-count:")
             or lower.startswith("options:")
@@ -253,6 +258,10 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
             if val not in {"CORE", "VARIANT"}:
                 val = "VARIANT"
             current["role"] = val
+        elif lower.startswith("question-weight:"):
+            val = parse_float(line.split(":", 1)[1].strip())
+            if val is not None:
+                current["question_weight"] = val
         elif lower.startswith("title:"):
             current["title"] = line.split(":", 1)[1].strip()
         elif lower.startswith("question:"):

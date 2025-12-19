@@ -157,6 +157,8 @@ Content constraints:
   - Provide Options as a pipe-separated list, and Group-variable as the type of thing being chosen.
 - For binary questions:
   - Leave Options/Group-variable/Range-min/Range-max/Zero-point/Open-* /Unit blank.
+- Question-weight should be 1 unless the question's resolution is significantly correlated with another
+  question in the cluster, in which case set a value below 1.
 
 STRICT FORMAT (LINE-BASED AND LIGHTWEIGHT)
 For each i = 1..N you output a block with these lines (use EXACT labels):
@@ -166,6 +168,7 @@ Role: CORE or VARIANT
 Title: <short title, <= 100 characters, single line>
 Question: <2–4 sentences that fully specify the resolution criteria, time bounds, actors, units, and fallback handling; do not add ratings>
 Angle: <short phrase capturing the angle within the cluster>
+Question-weight: <float; use 1 unless correlated with another question>
 Type: <binary|numeric|multiple_choice>
 Inbound-outcome-count: <integer; required for numeric only, blank otherwise>
 Options: <pipe-separated options; required for multiple_choice only, blank otherwise>

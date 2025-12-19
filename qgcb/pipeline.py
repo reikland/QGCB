@@ -73,6 +73,7 @@ def mock_proto_questions(seed: str, n: int) -> List[ProtoQuestion]:
         open_lower_bound = None
         open_upper_bound = None
         unit = ""
+        question_weight = 1.0
         if q_type == "numeric":
             inbound_outcome_count = 200
             range_min = 0.0
@@ -95,6 +96,7 @@ def mock_proto_questions(seed: str, n: int) -> List[ProtoQuestion]:
                     "\nRating: Publishable"\
                     "\nRationale: Dry-run placeholder for testing formatting."
                 ),
+                question_weight=question_weight,
                 type=q_type,
                 inbound_outcome_count=inbound_outcome_count,
                 options=options,
