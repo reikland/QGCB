@@ -19,6 +19,8 @@ from qgcb.prompts import (
     PROMPT_MUTATOR_USER_TMPL,
     RESOLUTION_CARD_SYS,
     RESOLUTION_CARD_USER_TMPL,
+    SEED_DERIVER_SYS,
+    SEED_DERIVER_USER_TMPL,
     SOURCE_SYS,
     SOURCE_USER_TMPL,
 )
@@ -113,6 +115,63 @@ def mock_proto_questions(seed: str, n: int) -> List[ProtoQuestion]:
             )
         )
     return out
+
+
+# ---------------------------------------------------------------------------
+# Step 0 – Derive seed prompt + tags + horizon from a raw question
+# ---------------------------------------------------------------------------
+
+def derive_seed_from_question(
+    question_text: str,
+    model: str,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    if dry_run:
+        return {
+            "seed": f"[MOCK SEED] {question_text.strip()}",
+            "tags": ["mock", "forecasting", "general"],
+            "horizon": "resolve by 2030-12-31 UTC",
+            "raw_output": "",
+        }
+
+    user_prompt = SEED_DERIVER_USER_TMPL.format(question=question_text.strip())
+
+    data = call_openrouter_structured(
+        system_prompt=SEED_DERIVER_SYS,
+        user_prompt=user_prompt,
+        model=model,
+        schema_hint='{"seed":"string","tags":["string"],"horizon":"string"}',
+        max_tokens=600,
+        temperature=0.3,
+    )
+
+    raw_output = _json.dumps(data, ensure_ascii=False, indent=2)
+    seed = str(data.get("seed", "") or "").strip()
+    tags_raw = data.get("tags", []) or []
+    horizon = str(data.get("horizon", "") or "").strip()
+
+    tags: List[str] = []
+    for tag in tags_raw:
+        try:
+            cleaned = str(tag).strip().lower()
+        except Exception:
+            continue
+        if cleaned:
+            tags.append(cleaned)
+
+    if not seed:
+        seed = question_text.strip()
+    if not tags:
+        tags = ["general"]
+    if not horizon:
+        horizon = "resolve by 2030-12-31 UTC"
+
+    return {
+        "seed": seed,
+        "tags": tags,
+        "horizon": horizon,
+        "raw_output": raw_output,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -523,6 +582,7 @@ def select_top_k(
 
 
 __all__ = [
+    "derive_seed_from_question",
     "find_resolution_sources_for_prompt",
     "generate_initial_questions",
     "generate_resolution_card",
