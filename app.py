@@ -643,7 +643,6 @@ if input_mode == "CSV questions":
             st.dataframe(df_seeds, width="stretch")
 
             kept_rows: List[Dict[str, Any]] = []
-            card_rows: List[Dict[str, Any]] = []
             for idx, run in enumerate(batch_results, start=1):
                 res_run = run["result"]
                 seed = res_run["seed"]
@@ -653,6 +652,7 @@ if input_mode == "CSV questions":
                 for entry in res_run.get("initial", []):
                     if not entry.get("keep_final"):
                         continue
+                    card_entry = card_store.get(entry["id"], {})
                     kept_rows.append(
                         {
                             "batch_id": f"b{idx}",
@@ -663,6 +663,22 @@ if input_mode == "CSV questions":
                             "id": entry["id"],
                             "title": entry["title"],
                             "question": entry["question"],
+                            "resolution_card": card_entry.get("card", ""),
+                            "question_weight": entry.get("question_weight"),
+                            "type": entry.get("type"),
+                            "inbound_outcome_count": entry.get("inbound_outcome_count"),
+                            "options": entry.get("options"),
+                            "group_variable": entry.get("group_variable"),
+                            "range_min": entry.get("range_min"),
+                            "range_max": entry.get("range_max"),
+                            "zero_point": entry.get("zero_point"),
+                            "open_lower_bound": entry.get("open_lower_bound"),
+                            "open_upper_bound": entry.get("open_upper_bound"),
+                            "unit": entry.get("unit"),
+                            "candidate_source": entry.get("candidate_source"),
+                            "angle": entry.get("angle"),
+                            "judge_rationale": entry.get("judge_rationale"),
+                            "raw_question_block": entry.get("raw_question_block"),
                             "judge_resolvability": entry["judge_resolvability"],
                             "judge_info": entry["judge_info"],
                             "judge_decision_impact": entry["judge_decision_impact"],
@@ -672,41 +688,18 @@ if input_mode == "CSV questions":
                             "judge_verdict_rationale": entry.get("judge_verdict_rationale", ""),
                         }
                     )
-                    card_entry = card_store.get(entry["id"], {})
-                    card_rows.append(
-                        {
-                            "batch_id": f"b{idx}",
-                            "input_question": run["input_question"],
-                            "seed": seed,
-                            "domain_tags": ", ".join(tags),
-                            "resolution_horizon": horizon,
-                            "id": entry["id"],
-                            "title": entry["title"],
-                            "question": entry["question"],
-                            "resolution_card": card_entry.get("card", ""),
-                        }
-                    )
 
-            st.subheader("Download CSV (kept questions)")
+            st.subheader("Download CSV (kept questions + resolution cards)")
             if kept_rows:
                 df_kept = pd.DataFrame(kept_rows)
                 st.download_button(
-                    "Download kept questions (CSV)",
+                    "Download kept questions + resolution cards (CSV)",
                     data=df_kept.to_csv(index=False).encode("utf-8"),
-                    file_name="metaculus_kept_questions_batch.csv",
+                    file_name="metaculus_kept_questions_with_cards_batch.csv",
                     mime="text/csv",
                 )
             else:
                 st.caption("No kept questions available across the batch.")
-
-            if card_rows:
-                df_cards = pd.DataFrame(card_rows)
-                st.download_button(
-                    "Download resolution cards for kept questions (CSV)",
-                    data=df_cards.to_csv(index=False).encode("utf-8"),
-                    file_name="metaculus_resolution_cards_batch.csv",
-                    mime="text/csv",
-                )
 
             st.subheader("Per-seed details")
             for idx, run in enumerate(batch_results, start=1):
@@ -1091,37 +1084,17 @@ else:
             if df_init.empty or df_init_for_download is None:
                 st.caption("No proto-questions available for download.")
             else:
+                card_store = res.get("resolution_cards", {}) or {}
+                df_init_for_download["resolution_card"] = df_init_for_download["id"].apply(
+                    lambda q_id: card_store.get(q_id, {}).get("card", "")
+                )
                 csv_bytes = df_init_for_download.to_csv(index=False).encode("utf-8")
                 st.download_button(
-                    "Download proto-questions (CSV)",
+                    "Download proto-questions + resolution cards (CSV)",
                     data=csv_bytes,
-                    file_name="metaculus_proto_questions.csv",
+                    file_name="metaculus_proto_questions_with_cards.csv",
                     mime="text/csv",
                 )
-
-                kept_cards_data = []
-                for e in kept_questions:
-                    card_entry = st.session_state.get("resolution_cards", {}).get(e["id"], {})
-                    kept_cards_data.append(
-                        {
-                            "id": e["id"],
-                            "title": e["title"],
-                            "question": e["question"],
-                            "resolution_card": card_entry.get("card", ""),
-                            "seed": seed,
-                            "domain_tags": ", ".join(tags),
-                            "resolution_horizon": horizon,
-                        }
-                    )
-                if kept_cards_data:
-                    df_cards = pd.DataFrame(kept_cards_data)
-                    csv_cards = df_cards.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        "Download resolution cards for kept questions (CSV)",
-                        data=csv_cards,
-                        file_name="metaculus_resolution_cards.csv",
-                        mime="text/csv",
-                    )
 
             st.subheader("Follow-up chat (GPT‑5 with kept questions)")
             if kept_questions:
