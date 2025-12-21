@@ -643,7 +643,6 @@ if input_mode == "CSV questions":
             st.dataframe(df_seeds, width="stretch")
 
             kept_rows: List[Dict[str, Any]] = []
-            card_rows: List[Dict[str, Any]] = []
             for idx, run in enumerate(batch_results, start=1):
                 res_run = run["result"]
                 seed = res_run["seed"]
@@ -653,6 +652,7 @@ if input_mode == "CSV questions":
                 for entry in res_run.get("initial", []):
                     if not entry.get("keep_final"):
                         continue
+                    card_entry = card_store.get(entry["id"], {})
                     kept_rows.append(
                         {
                             "batch_id": f"b{idx}",
@@ -663,6 +663,7 @@ if input_mode == "CSV questions":
                             "id": entry["id"],
                             "title": entry["title"],
                             "question": entry["question"],
+                            "resolution_card": card_entry.get("card", ""),
                             "judge_resolvability": entry["judge_resolvability"],
                             "judge_info": entry["judge_info"],
                             "judge_decision_impact": entry["judge_decision_impact"],
@@ -672,41 +673,18 @@ if input_mode == "CSV questions":
                             "judge_verdict_rationale": entry.get("judge_verdict_rationale", ""),
                         }
                     )
-                    card_entry = card_store.get(entry["id"], {})
-                    card_rows.append(
-                        {
-                            "batch_id": f"b{idx}",
-                            "input_question": run["input_question"],
-                            "seed": seed,
-                            "domain_tags": ", ".join(tags),
-                            "resolution_horizon": horizon,
-                            "id": entry["id"],
-                            "title": entry["title"],
-                            "question": entry["question"],
-                            "resolution_card": card_entry.get("card", ""),
-                        }
-                    )
 
-            st.subheader("Download CSV (kept questions)")
+            st.subheader("Download CSV (kept questions + resolution cards)")
             if kept_rows:
                 df_kept = pd.DataFrame(kept_rows)
                 st.download_button(
-                    "Download kept questions (CSV)",
+                    "Download kept questions + resolution cards (CSV)",
                     data=df_kept.to_csv(index=False).encode("utf-8"),
-                    file_name="metaculus_kept_questions_batch.csv",
+                    file_name="metaculus_kept_questions_with_cards_batch.csv",
                     mime="text/csv",
                 )
             else:
                 st.caption("No kept questions available across the batch.")
-
-            if card_rows:
-                df_cards = pd.DataFrame(card_rows)
-                st.download_button(
-                    "Download resolution cards for kept questions (CSV)",
-                    data=df_cards.to_csv(index=False).encode("utf-8"),
-                    file_name="metaculus_resolution_cards_batch.csv",
-                    mime="text/csv",
-                )
 
             st.subheader("Per-seed details")
             for idx, run in enumerate(batch_results, start=1):
