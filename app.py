@@ -510,7 +510,10 @@ else:
 
     run_button = st.button("Run full pipeline (PROMPTS → SOURCES → QUESTIONS)")
 
-# ---------------------- Run pipeline ----------------------
+    tags_str = st.text_input(
+        "Domain tags (comma-separated)",
+        value="ai,policy,macro",
+    )
 
 if run_button:
     main_model = (main_model_input or "").strip() or DEFAULT_MAIN_MODEL
