@@ -809,7 +809,7 @@ if input_mode == "CSV questions":
 
             chat_system_prompt = (
                 "You are a fast, concise assistant for follow-up on kept forecasting questions. "
-                "Reply in plain text (no markdown fences), stay brief (<=5 sentences), and keep the conversation going without resetting context. "
+                "Reply in plain text (no markdown fences), keep the conversation going without resetting context, and do not truncate questions. "
                 "If you do not know, say so quickly.\n\n"
                 f"Context:\n- Seed: {selected_seed}\n- Tags: {', '.join(selected_tags)}\n- Horizon: {selected_horizon}\n"
                 f"- Shortlisted questions:\n{chr(10).join(kept_preview_lines)}"
@@ -862,7 +862,7 @@ if input_mode == "CSV questions":
                         raw_reply = call_openrouter_raw(
                             messages=or_messages,
                             model="openai/gpt-5.1",
-                            max_tokens=600,
+                            max_tokens=1200,
                             temperature=0.4,
                         )
                         assistant_reply = raw_reply.strip()
@@ -1143,7 +1143,7 @@ else:
 
             chat_system_prompt = (
                 "You are a fast, concise assistant for follow-up on kept forecasting questions. "
-                "Reply in plain text (no markdown fences), stay brief (<=5 sentences), and keep the conversation going without resetting context. "
+                "Reply in plain text (no markdown fences), keep the conversation going without resetting context, and do not truncate questions. "
                 "If you do not know, say so quickly.\n\n"
                 f"Context:\n- Seed: {seed}\n- Tags: {', '.join(tags)}\n- Horizon: {horizon}\n"
                 f"- Shortlisted questions:\n{chr(10).join(kept_preview_lines)}"
@@ -1193,7 +1193,7 @@ else:
                         raw_reply = call_openrouter_raw(
                             messages=or_messages,
                             model="openai/gpt-5.1",
-                            max_tokens=600,
+                            max_tokens=1200,
                             temperature=0.4,
                         )
                         assistant_reply = raw_reply.strip()
