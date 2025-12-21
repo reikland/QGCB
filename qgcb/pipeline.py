@@ -33,8 +33,8 @@ from qgcb.prompts import (
 def _allocate_question_types(n: int) -> Dict[str, int]:
     proportions = {
         "binary": 0.5,
-        "numeric": 0.3,
-        "multiple_choice": 0.2,
+        "numeric": 0.2,
+        "multiple_choice": 0.3,
     }
     base = {key: int(n * pct) for key, pct in proportions.items()}
     remainder = n - sum(base.values())

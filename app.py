@@ -664,6 +664,21 @@ if input_mode == "CSV questions":
                             "title": entry["title"],
                             "question": entry["question"],
                             "resolution_card": card_entry.get("card", ""),
+                            "question_weight": entry.get("question_weight"),
+                            "type": entry.get("type"),
+                            "inbound_outcome_count": entry.get("inbound_outcome_count"),
+                            "options": entry.get("options"),
+                            "group_variable": entry.get("group_variable"),
+                            "range_min": entry.get("range_min"),
+                            "range_max": entry.get("range_max"),
+                            "zero_point": entry.get("zero_point"),
+                            "open_lower_bound": entry.get("open_lower_bound"),
+                            "open_upper_bound": entry.get("open_upper_bound"),
+                            "unit": entry.get("unit"),
+                            "candidate_source": entry.get("candidate_source"),
+                            "angle": entry.get("angle"),
+                            "judge_rationale": entry.get("judge_rationale"),
+                            "raw_question_block": entry.get("raw_question_block"),
                             "judge_resolvability": entry["judge_resolvability"],
                             "judge_info": entry["judge_info"],
                             "judge_decision_impact": entry["judge_decision_impact"],
@@ -1069,37 +1084,17 @@ else:
             if df_init.empty or df_init_for_download is None:
                 st.caption("No proto-questions available for download.")
             else:
+                card_store = res.get("resolution_cards", {}) or {}
+                df_init_for_download["resolution_card"] = df_init_for_download["id"].apply(
+                    lambda q_id: card_store.get(q_id, {}).get("card", "")
+                )
                 csv_bytes = df_init_for_download.to_csv(index=False).encode("utf-8")
                 st.download_button(
-                    "Download proto-questions (CSV)",
+                    "Download proto-questions + resolution cards (CSV)",
                     data=csv_bytes,
-                    file_name="metaculus_proto_questions.csv",
+                    file_name="metaculus_proto_questions_with_cards.csv",
                     mime="text/csv",
                 )
-
-                kept_cards_data = []
-                for e in kept_questions:
-                    card_entry = st.session_state.get("resolution_cards", {}).get(e["id"], {})
-                    kept_cards_data.append(
-                        {
-                            "id": e["id"],
-                            "title": e["title"],
-                            "question": e["question"],
-                            "resolution_card": card_entry.get("card", ""),
-                            "seed": seed,
-                            "domain_tags": ", ".join(tags),
-                            "resolution_horizon": horizon,
-                        }
-                    )
-                if kept_cards_data:
-                    df_cards = pd.DataFrame(kept_cards_data)
-                    csv_cards = df_cards.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        "Download resolution cards for kept questions (CSV)",
-                        data=csv_cards,
-                        file_name="metaculus_resolution_cards.csv",
-                        mime="text/csv",
-                    )
 
             st.subheader("Follow-up chat (GPT‑5 with kept questions)")
             if kept_questions:
