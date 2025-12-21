@@ -498,11 +498,6 @@ else:
         ),
     )
 
-    tags_str = st.text_input(
-        "Domain tags (comma-separated)",
-        value="ai,policy,macro",
-    )
-
     horizon = st.text_input(
         "Horizon / rough timeline",
         value="resolve by 2040-12-31 UTC",
@@ -814,7 +809,7 @@ if input_mode == "CSV questions":
 
             chat_system_prompt = (
                 "You are a fast, concise assistant for follow-up on kept forecasting questions. "
-                "Reply in plain text (no markdown fences), stay brief (<=5 sentences), and keep the conversation going without resetting context. "
+                "Reply in plain text (no markdown fences), keep the conversation going without resetting context, and do not truncate questions. "
                 "If you do not know, say so quickly.\n\n"
                 f"Context:\n- Seed: {selected_seed}\n- Tags: {', '.join(selected_tags)}\n- Horizon: {selected_horizon}\n"
                 f"- Shortlisted questions:\n{chr(10).join(kept_preview_lines)}"
@@ -867,7 +862,7 @@ if input_mode == "CSV questions":
                         raw_reply = call_openrouter_raw(
                             messages=or_messages,
                             model="openai/gpt-5.1",
-                            max_tokens=600,
+                            max_tokens=1200,
                             temperature=0.4,
                         )
                         assistant_reply = raw_reply.strip()
@@ -914,80 +909,6 @@ else:
         prompt_entries = res.get("prompts", [])
         initial_entries = res["initial"]
 
-
-        if not derived_rows:
-                st.error("No seeds could be derived from the CSV questions.")
-        else:
-                batch_results: List[Dict[str, Any]] = []
-                for idx, row in enumerate(derived_rows, start=1):
-                    status_prefix = f"[{idx}/{len(derived_rows)}] "
-                    res_dict = run_full_pipeline(
-                        seed=row["seed"],
-                        tags=row["tags"],
-                        horizon=row["horizon"],
-                        main_model=main_model,
-                        judge_model=judge_model,
-                        n_mutations=n_mutations,
-                        n_initial=n_initial,
-                        k_keep=k_keep,
-                        dry_run=dry_run,
-                        status_prefix=status_prefix,
-                    )
-                    if res_dict is None:
-                        continue
-                    batch_results.append(
-                        {
-                            "input_question": row["input_question"],
-                            "seed": row["seed"],
-                            "tags": row["tags"],
-                            "horizon": row["horizon"],
-                            "raw_seed_output": row["raw_seed_output"],
-                            "result": res_dict,
-                        }
-                    )
-
-                st.session_state["batch_results"] = batch_results
-                st.session_state["evo_result"] = None
-                st.session_state["resolution_cards"] = {}
-    else:
-        if not seed.strip():
-            st.warning("Please provide a seed prompt.")
-        elif not dry_run and not current_key:
-            st.error("No OPENROUTER_API_KEY set and dry_run is disabled.")
-        else:
-            tags = [t.strip() for t in tags_str.split(",") if t.strip()]
-            st.info(
-                f"Using main model (mutations + sources + generation): `{main_model}`\n\n"
-                f"Using judge model (strict resolvability): `{judge_model}`"
-            )
-            res_dict = run_full_pipeline(
-                seed=seed,
-                tags=tags,
-                horizon=horizon,
-                main_model=main_model,
-                judge_model=judge_model,
-                n_mutations=n_mutations,
-                n_initial=n_initial,
-                k_keep=k_keep,
-                dry_run=dry_run,
-            )
-            st.session_state["evo_result"] = res_dict
-            st.session_state["resolution_cards"] = (
-                res_dict.get("resolution_cards", {}) if res_dict else {}
-            )
-            st.session_state["batch_results"] = None
-
-# ---------------------- Display results ----------------------
-
-res = st.session_state.get("evo_result")
-batch_results = st.session_state.get("batch_results")
-
-if input_mode == "CSV questions":
-    if not batch_results:
-        st.info(
-            "Upload a CSV list of questions, choose how many to process, then run the batch pipeline."
-        )
-    else:
         tab_overview, tab_cards = st.tabs(
             ["Overview & questions", "Resolution cards (kept questions)"]
         )
@@ -1097,7 +1018,7 @@ if input_mode == "CSV questions":
                 prompt_sources_map = {
                     pe.get("prompt_id"): pe.get("sources", []) for pe in prompt_entries
                 }
-            
+
                 for _, row in df_init.iterrows():
                     with st.container():
                         st.markdown(f"**{row['id']}** – *{row['title']}*")
@@ -1117,7 +1038,7 @@ if input_mode == "CSV questions":
                                 f"- **Candidate source (generator hint):** {row['candidate_source']}  \n"
                                 f"- **Sources to use for resolution:**\n{src_block}"
                             )
-            
+
             with st.expander("Debug: raw model outputs"):
                 st.markdown("**Raw prompt mutation output (JSON):**")
                 raw_mut = res.get("raw_prompt_mutation_output") or ""
@@ -1125,7 +1046,7 @@ if input_mode == "CSV questions":
                     st.code(raw_mut, language="json")
                 else:
                     st.caption("No stored raw prompt mutation output (dry_run or mock).")
-            
+
                 st.markdown("**Raw source finder outputs (per prompt, JSON):**")
                 raw_src_dict = res.get("raw_source_finder_outputs") or {}
                 if raw_src_dict:
@@ -1136,14 +1057,14 @@ if input_mode == "CSV questions":
                         st.code(raw_src, language="json")
                 else:
                     st.caption("No stored raw source finder output (dry_run or mock).")
-            
+
                 st.markdown("**Raw generation output (all prompts):**")
                 raw_gen = res.get("raw_generation_output") or ""
                 if raw_gen:
                     st.code(raw_gen, language="text")
                 else:
                     st.caption("No stored raw generation output (dry_run or mock).")
-            
+
                 st.markdown("**Judge raw lines (keep=...; ...):**")
                 if not df_init.empty:
                     lines = df_init[["id", "judge_raw_line"]].to_dict(orient="records")
@@ -1151,18 +1072,21 @@ if input_mode == "CSV questions":
                         st.code(f"{row['id']}: {row['judge_raw_line']}", language="text")
                 else:
                     st.caption("No judge lines available.")
-            
+
                 st.markdown("**Raw question blocks (as parsed, before cleanup):**")
                 if not df_init.empty:
                     for _, row in df_init[["id", "raw_question_block"]].iterrows():
                         if not row["raw_question_block"]:
                             continue
-                        st.code(f"{row['id']}\n{row['raw_question_block']}", language="text")
+                        st.code(
+                            f"{row['id']}\n{row['raw_question_block']}",
+                            language="text",
+                        )
                 else:
                     st.caption("No parsed question blocks available.")
-            
+
             kept_questions = [e for e in initial_entries if e.get("keep_final")]
-            
+
             st.subheader("Download CSV")
             if df_init.empty or df_init_for_download is None:
                 st.caption("No proto-questions available for download.")
@@ -1174,7 +1098,7 @@ if input_mode == "CSV questions":
                     file_name="metaculus_proto_questions.csv",
                     mime="text/csv",
                 )
-            
+
                 kept_cards_data = []
                 for e in kept_questions:
                     card_entry = st.session_state.get("resolution_cards", {}).get(e["id"], {})
@@ -1198,7 +1122,7 @@ if input_mode == "CSV questions":
                         file_name="metaculus_resolution_cards.csv",
                         mime="text/csv",
                     )
-            
+
             st.subheader("Follow-up chat (GPT‑5 with kept questions)")
             if kept_questions:
                 with st.expander("Kept questions (keep_final = True)", expanded=False):
@@ -1207,56 +1131,55 @@ if input_mode == "CSV questions":
                             f"- **{e['id']}** – {e['title']}\n\n"
                             f"  {e['question']}"
                         )
-            
             else:
                 st.info(
                     "No questions are marked keep_final. The chat will still work but without injected context."
                 )
-            
+
             kept_preview_lines = [
                 f"  • {e['id']} – {e['title']} – {e['question']}"
                 for e in kept_questions[:8]
             ] or ["  • None"]
-            
+
             chat_system_prompt = (
                 "You are a fast, concise assistant for follow-up on kept forecasting questions. "
-                "Reply in plain text (no markdown fences), stay brief (<=5 sentences), and keep the conversation going without resetting context. "
+                "Reply in plain text (no markdown fences), keep the conversation going without resetting context, and do not truncate questions. "
                 "If you do not know, say so quickly.\n\n"
                 f"Context:\n- Seed: {seed}\n- Tags: {', '.join(tags)}\n- Horizon: {horizon}\n"
                 f"- Shortlisted questions:\n{chr(10).join(kept_preview_lines)}"
             )
-            
+
             if "refine_chat_history" not in st.session_state:
                 st.session_state["refine_chat_history"] = []
             if "refine_chat_context" not in st.session_state:
                 st.session_state["refine_chat_context"] = chat_system_prompt
-            
+
             col_chat_controls = st.columns([4, 1])
             with col_chat_controls[1]:
                 if st.button("Reset chat", width="stretch"):
                     st.session_state["refine_chat_history"] = []
-            
+
             # Always show the running thread; do not reset it on rerun
             for msg in st.session_state["refine_chat_history"]:
                 with st.chat_message(msg["role"]):
                     st.markdown(msg["content"])
-            
+
             user_input = st.chat_input("Write a message to discuss the kept questions.")
-            
+
             if user_input:
                 st.session_state["refine_chat_history"].append(
                     {"role": "user", "content": user_input}
                 )
                 with st.chat_message("user"):
                     st.markdown(user_input)
-            
+
                 or_messages: List[Dict[str, str]] = [
                     {"role": "system", "content": chat_system_prompt}
                 ]
                 # Trim context for faster responses while keeping conversation continuity
                 history_for_model = st.session_state["refine_chat_history"][-24:]
                 or_messages.extend(history_for_model)
-            
+
                 if dry_run:
                     assistant_reply = (
                         "Dry-run mode: this would simulate a reply using your kept questions and message."
@@ -1270,521 +1193,24 @@ if input_mode == "CSV questions":
                         raw_reply = call_openrouter_raw(
                             messages=or_messages,
                             model="openai/gpt-5.1",
-                            max_tokens=600,
+                            max_tokens=1200,
                             temperature=0.4,
                         )
                         assistant_reply = raw_reply.strip()
                     except Exception as e:
                         assistant_reply = f"Error calling the chatbot: {e}"
-            
+
                 with st.chat_message("assistant"):
                     st.markdown(assistant_reply)
-            
+
                 st.session_state["refine_chat_history"].append(
                     {"role": "assistant", "content": assistant_reply}
                 )
-            
-            with tab_cards:
-            st.subheader("Resolution cards generated for kept questions")
-            kept_questions = [e for e in initial_entries if e.get("keep_final")]
-            
-            if not kept_questions:
-                st.info(
-                    "No questions are marked keep_final. Run the pipeline and return here to view resolution cards."
-            st.subheader("Batch run summary")
-            seed_rows = []
-            for idx, run in enumerate(batch_results, start=1):
-                seed_rows.append(
-                    {
-                        "batch_id": f"b{idx}",
-                        "input_question": run["input_question"],
-                        "seed": run["seed"],
-                        "domain_tags": ", ".join(run["tags"]),
-                        "resolution_horizon": run["horizon"],
-                    }
-                )
-
-            df_seeds = pd.DataFrame(seed_rows)
-            st.caption("Derived seeds, tags, and horizons from the CSV questions.")
-            st.dataframe(df_seeds, width="stretch")
-
-            kept_rows: List[Dict[str, Any]] = []
-            card_rows: List[Dict[str, Any]] = []
-            for idx, run in enumerate(batch_results, start=1):
-                res_run = run["result"]
-                seed = res_run["seed"]
-                tags = res_run["tags"]
-                horizon = res_run["horizon"]
-                card_store = res_run.get("resolution_cards", {})
-                for entry in res_run.get("initial", []):
-                    if not entry.get("keep_final"):
-                        continue
-                    kept_rows.append(
-                        {
-                            "batch_id": f"b{idx}",
-                            "input_question": run["input_question"],
-                            "seed": seed,
-                            "domain_tags": ", ".join(tags),
-                            "resolution_horizon": horizon,
-                            "id": entry["id"],
-                            "title": entry["title"],
-                            "question": entry["question"],
-                            "judge_resolvability": entry["judge_resolvability"],
-                            "judge_info": entry["judge_info"],
-                            "judge_decision_impact": entry["judge_decision_impact"],
-                            "judge_voi": entry["judge_voi"],
-                            "judge_minutes_to_resolve": entry["judge_minutes_to_resolve"],
-                            "judge_verdict": entry.get("judge_verdict", ""),
-                            "judge_verdict_rationale": entry.get("judge_verdict_rationale", ""),
-                        }
-                    )
-                    card_entry = card_store.get(entry["id"], {})
-                    card_rows.append(
-                        {
-                            "batch_id": f"b{idx}",
-                            "input_question": run["input_question"],
-                            "seed": seed,
-                            "domain_tags": ", ".join(tags),
-                            "resolution_horizon": horizon,
-                            "id": entry["id"],
-                            "title": entry["title"],
-                            "question": entry["question"],
-                            "resolution_card": card_entry.get("card", ""),
-                        }
-                    )
-
-            st.subheader("Download CSV (kept questions)")
-            if kept_rows:
-                df_kept = pd.DataFrame(kept_rows)
-                st.download_button(
-                    "Download kept questions (CSV)",
-                    data=df_kept.to_csv(index=False).encode("utf-8"),
-                    file_name="metaculus_kept_questions_batch.csv",
-                    mime="text/csv",
-                )
-            else:
-                st.caption("No kept questions available across the batch.")
-
-            if card_rows:
-                df_cards = pd.DataFrame(card_rows)
-                st.download_button(
-                    "Download resolution cards for kept questions (CSV)",
-                    data=df_cards.to_csv(index=False).encode("utf-8"),
-                    file_name="metaculus_resolution_cards_batch.csv",
-                    mime="text/csv",
-                )
-
-            st.subheader("Per-seed details")
-            for idx, run in enumerate(batch_results, start=1):
-                res_run = run["result"]
-                seed = res_run["seed"]
-                tags = res_run["tags"]
-                horizon = res_run["horizon"]
-                prompt_entries = res_run.get("prompts", [])
-                initial_entries = res_run.get("initial", [])
-
-                with st.expander(
-                    f"Batch b{idx} – {seed[:80]}{'...' if len(seed) > 80 else ''}",
-                    expanded=False,
-                ):
-                    st.markdown(f"**Input question:** {run['input_question']}")
-                    st.markdown(f"**Seed:** {seed}")
-                    st.markdown(f"**Domain tags:** {', '.join(tags)}")
-                    st.markdown(f"**Horizon:** {horizon}")
-
-                    st.subheader("Prompts (seed + mutations) and resolution hints")
-                    if prompt_entries:
-                        df_prompts = pd.DataFrame(prompt_entries)
-                        df_prompts_view = df_prompts.copy()
-                        df_prompts_view["sources_joined"] = df_prompts_view["sources"].apply(
-                            lambda lst: "; ".join(lst) if isinstance(lst, list) else str(lst)
-                        )
-                        df_prompts_view = df_prompts_view[
-                            [
-                                "prompt_id",
-                                "kind",
-                                "focus",
-                                "rationale",
-                                "text",
-                                "sources_joined",
-                            ]
-                        ]
-                        st.dataframe(df_prompts_view, width="stretch")
-                    else:
-                        st.info("No prompts recorded.")
-
-                    st.subheader("Proto-questions (generation 0, across all prompts)")
-                    df_init = pd.DataFrame(initial_entries)
-                    if not df_init.empty:
-                        df_init_view = df_init[
-                            [
-                                "id",
-                                "parent_prompt_id",
-                                "keep_final",
-                                "judge_keep",
-                                "judge_resolvability",
-                                "judge_info",
-                                "judge_decision_impact",
-                                "judge_voi",
-                                "judge_minutes_to_resolve",
-                                "judge_verdict",
-                                "judge_verdict_rationale",
-                                "title",
-                                "question",
-                                "question_weight",
-                                "type",
-                                "inbound_outcome_count",
-                                "options",
-                                "group_variable",
-                                "range_min",
-                                "range_max",
-                                "zero_point",
-                                "open_lower_bound",
-                                "open_upper_bound",
-                                "unit",
-                                "candidate_source",
-                                "angle",
-                                "judge_rationale",
-                                "raw_question_block",
-                            ]
-                        ].copy()
-                        st.dataframe(df_init_view, width="stretch")
-                    else:
-                        st.info("No proto-questions available.")
 
         with tab_cards:
             st.subheader("Resolution cards generated for kept questions")
-            for idx, run in enumerate(batch_results, start=1):
-                res_run = run["result"]
-                kept_questions = [e for e in res_run["initial"] if e.get("keep_final")]
-                st.markdown(
-                    f"**Batch b{idx}** — {len(kept_questions)} kept questions"
-                )
-                if not kept_questions:
-                    st.caption("No questions are marked keep_final for this seed.")
-                    continue
-                card_store = res_run.get("resolution_cards", {})
-                for e in kept_questions:
-                    card_entry = card_store.get(e["id"], {})
-                    st.markdown(f"**Resolution card – {e['id']} ({e['title']}):**")
-                    st.markdown(
-                        card_entry.get("card", "(no card generated)") or "(no card generated)"
-                    )
-else:
-    if res is None:
-        st.info(
-            "Configure the number of mutated prompts, total N questions, K kept, "
-            "set your seed, then click the button to run the pipeline."
-        )
-    else:
-        main_model = res["models"]["main"]
-        judge_model = res["models"]["judge"]
-        seed = res["seed"]
-        tags = res["tags"]
-        horizon = res["horizon"]
-        prompt_entries = res.get("prompts", [])
-        initial_entries = res["initial"]
-
-        tab_overview, tab_cards = st.tabs(
-            ["Overview & questions", "Resolution cards (kept questions)"]
-        )
-
-        with tab_overview:
-            st.subheader("Run summary")
-
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.markdown(
-                    f"**Main model (mutations + sources + generation):** `{main_model}`"
-                )
-                st.markdown(f"**Judge model (strict resolvability):** `{judge_model}`")
-            with col2:
-                st.markdown(
-                    f"**Total N proto-questions (requested):** {res['params']['n_initial_total']}"
-                )
-                st.markdown(f"**K target kept:** {res['params']['k_keep']}")
-            with col3:
-                st.markdown(f"**Number of mutated prompts:** {res['params']['n_mutations']}")
-                st.markdown(f"**Horizon:** {horizon}")
-
-            st.markdown("**Seed preview:**")
-            st.caption(seed[:250] + ("..." if len(seed) > 250 else ""))
-
-            st.subheader("Prompts (seed + mutations) and resolution hints")
-            if prompt_entries:
-                df_prompts = pd.DataFrame(prompt_entries)
-                df_prompts_view = df_prompts.copy()
-                df_prompts_view["sources_joined"] = df_prompts_view["sources"].apply(
-                    lambda lst: "; ".join(lst) if isinstance(lst, list) else str(lst)
-                )
-                df_prompts_view = df_prompts_view[
-                    [
-                        "prompt_id",
-                        "kind",
-                        "focus",
-                        "rationale",
-                        "text",
-                        "sources_joined",
-                    ]
-                ]
-                st.caption(
-                    "Root seed (p0) and mutated prompts (p1, p2, ...) with associated public resolution sources."
-                )
-                st.dataframe(df_prompts_view, width="stretch")
-            else:
-                st.info("No prompts recorded.")
-
-            st.subheader("Proto-questions (generation 0, across all prompts)")
-            df_init = pd.DataFrame(initial_entries)
-            df_init_for_download = None
-
-            if not df_init.empty:
-                df_init_view = df_init[
-                    [
-                        "id",
-                        "parent_prompt_id",
-                        "keep_final",
-                        "judge_keep",
-                        "judge_resolvability",
-                        "judge_info",
-                        "judge_decision_impact",
-                        "judge_voi",
-                        "judge_minutes_to_resolve",
-                        "judge_verdict",
-                        "judge_verdict_rationale",
-                        "title",
-                        "question",
-                        "question_weight",
-                        "type",
-                        "inbound_outcome_count",
-                        "options",
-                        "group_variable",
-                        "range_min",
-                        "range_max",
-                        "zero_point",
-                        "open_lower_bound",
-                        "open_upper_bound",
-                        "unit",
-                        "candidate_source",
-                        "angle",
-                        "judge_rationale",
-                        "raw_question_block",
-                    ]
-                ].copy()
-
-                st.caption(
-                    "All generation-0 proto-questions with strict judge scores "
-                    "(resolvability, info, decision impact, VOI, minutes_to_resolve) "
-                    "and final selection flag (keep_final)."
-                )
-                st.dataframe(df_init_view, width="stretch")
-
-                df_init_for_download = df_init_view.copy()
-                df_init_for_download["seed"] = seed
-                df_init_for_download["domain_tags"] = ", ".join(tags)
-                df_init_for_download["resolution_horizon"] = horizon
-            else:
-                st.info("No proto-questions available.")
-
-        with tab_overview:
-            st.subheader("Initial resolution criteria & sources")
-            if df_init.empty:
-                st.caption("No proto-questions to show resolution criteria for.")
-            else:
-                prompt_sources_map = {
-                    pe.get("prompt_id"): pe.get("sources", []) for pe in prompt_entries
-                }
-            
-                for _, row in df_init.iterrows():
-                    with st.container():
-                        st.markdown(f"**{row['id']}** – *{row['title']}*")
-                        st.markdown(row["question"])
-                        with st.expander("Resolution criteria & explicit sources", expanded=False):
-                            srcs = prompt_sources_map.get(row["parent_prompt_id"], [])
-                            src_block = "\n".join(f"- {s}" for s in srcs) or "- (no sources returned)"
-                            st.markdown(
-                                f"- **Resolvability:** {row['judge_resolvability']}/5  \n"
-                                f"- **Information value:** {row['judge_info']}/5  \n"
-                                f"- **Decision impact:** {row['judge_decision_impact']:.2f}  \n"
-                                f"- **VOI:** {row['judge_voi']:.2f}  \n"
-                                f"- **Minutes to resolve:** {row['judge_minutes_to_resolve']:.1f}  \n"
-                                f"- **Judge verdict:** {row.get('judge_verdict', '') or '(unspecified)'}  \n"
-                                f"- **Verdict rationale:** {row.get('judge_verdict_rationale', '') or row['judge_rationale']}  \n"
-                                f"- **Rationale:** {row['judge_rationale']}  \n"
-                                f"- **Candidate source (generator hint):** {row['candidate_source']}  \n"
-                                f"- **Sources to use for resolution:**\n{src_block}"
-                            )
-            
-            with st.expander("Debug: raw model outputs"):
-                st.markdown("**Raw prompt mutation output (JSON):**")
-                raw_mut = res.get("raw_prompt_mutation_output") or ""
-                if raw_mut:
-                    st.code(raw_mut, language="json")
-                else:
-                    st.caption("No stored raw prompt mutation output (dry_run or mock).")
-            
-                st.markdown("**Raw source finder outputs (per prompt, JSON):**")
-                raw_src_dict = res.get("raw_source_finder_outputs") or {}
-                if raw_src_dict:
-                    for pid, raw_src in raw_src_dict.items():
-                        if not raw_src:
-                            continue
-                        st.markdown(f"*Prompt {pid}*")
-                        st.code(raw_src, language="json")
-                else:
-                    st.caption("No stored raw source finder output (dry_run or mock).")
-            
-                st.markdown("**Raw generation output (all prompts):**")
-                raw_gen = res.get("raw_generation_output") or ""
-                if raw_gen:
-                    st.code(raw_gen, language="text")
-                else:
-                    st.caption("No stored raw generation output (dry_run or mock).")
-            
-                st.markdown("**Judge raw lines (keep=...; ...):**")
-                if not df_init.empty:
-                    lines = df_init[["id", "judge_raw_line"]].to_dict(orient="records")
-                    for row in lines:
-                        st.code(f"{row['id']}: {row['judge_raw_line']}", language="text")
-                else:
-                    st.caption("No judge lines available.")
-            
-                st.markdown("**Raw question blocks (as parsed, before cleanup):**")
-                if not df_init.empty:
-                    for _, row in df_init[["id", "raw_question_block"]].iterrows():
-                        if not row["raw_question_block"]:
-                            continue
-                        st.code(f"{row['id']}\n{row['raw_question_block']}", language="text")
-                else:
-                    st.caption("No parsed question blocks available.")
-            
             kept_questions = [e for e in initial_entries if e.get("keep_final")]
-            
-            st.subheader("Download CSV")
-            if df_init.empty or df_init_for_download is None:
-                st.caption("No proto-questions available for download.")
-            else:
-                csv_bytes = df_init_for_download.to_csv(index=False).encode("utf-8")
-                st.download_button(
-                    "Download proto-questions (CSV)",
-                    data=csv_bytes,
-                    file_name="metaculus_proto_questions.csv",
-                    mime="text/csv",
-                )
-            
-                kept_cards_data = []
-                for e in kept_questions:
-                    card_entry = st.session_state.get("resolution_cards", {}).get(e["id"], {})
-                    kept_cards_data.append(
-                        {
-                            "id": e["id"],
-                            "title": e["title"],
-                            "question": e["question"],
-                            "resolution_card": card_entry.get("card", ""),
-                            "seed": seed,
-                            "domain_tags": ", ".join(tags),
-                            "resolution_horizon": horizon,
-                        }
-                    )
-                if kept_cards_data:
-                    df_cards = pd.DataFrame(kept_cards_data)
-                    csv_cards = df_cards.to_csv(index=False).encode("utf-8")
-                    st.download_button(
-                        "Download resolution cards for kept questions (CSV)",
-                        data=csv_cards,
-                        file_name="metaculus_resolution_cards.csv",
-                        mime="text/csv",
-                    )
-            
-            st.subheader("Follow-up chat (GPT‑5 with kept questions)")
-            if kept_questions:
-                with st.expander("Kept questions (keep_final = True)", expanded=False):
-                    for e in kept_questions:
-                        st.markdown(
-                            f"- **{e['id']}** – {e['title']}\n\n"
-                            f"  {e['question']}"
-                        )
-            
-            else:
-                st.info(
-                    "No questions are marked keep_final. The chat will still work but without injected context."
-                )
-            
-            kept_preview_lines = [
-                f"  • {e['id']} – {e['title']} – {e['question']}"
-                for e in kept_questions[:8]
-            ] or ["  • None"]
-            
-            chat_system_prompt = (
-                "You are a fast, concise assistant for follow-up on kept forecasting questions. "
-                "Reply in plain text (no markdown fences), stay brief (<=5 sentences), and keep the conversation going without resetting context. "
-                "If you do not know, say so quickly.\n\n"
-                f"Context:\n- Seed: {seed}\n- Tags: {', '.join(tags)}\n- Horizon: {horizon}\n"
-                f"- Shortlisted questions:\n{chr(10).join(kept_preview_lines)}"
-            )
-            
-            if "refine_chat_history" not in st.session_state:
-                st.session_state["refine_chat_history"] = []
-            if "refine_chat_context" not in st.session_state:
-                st.session_state["refine_chat_context"] = chat_system_prompt
-            
-            col_chat_controls = st.columns([4, 1])
-            with col_chat_controls[1]:
-                if st.button("Reset chat", width="stretch"):
-                    st.session_state["refine_chat_history"] = []
-            
-            # Always show the running thread; do not reset it on rerun
-            for msg in st.session_state["refine_chat_history"]:
-                with st.chat_message(msg["role"]):
-                    st.markdown(msg["content"])
-            
-            user_input = st.chat_input("Write a message to discuss the kept questions.")
-            
-            if user_input:
-                st.session_state["refine_chat_history"].append(
-                    {"role": "user", "content": user_input}
-                )
-                with st.chat_message("user"):
-                    st.markdown(user_input)
-            
-                or_messages: List[Dict[str, str]] = [
-                    {"role": "system", "content": chat_system_prompt}
-                ]
-                # Trim context for faster responses while keeping conversation continuity
-                history_for_model = st.session_state["refine_chat_history"][-24:]
-                or_messages.extend(history_for_model)
-            
-                if dry_run:
-                    assistant_reply = (
-                        "Dry-run mode: this would simulate a reply using your kept questions and message."
-                    )
-                elif not get_openrouter_key():
-                    assistant_reply = (
-                        "No OPENROUTER_API_KEY is configured. Add it in the sidebar or enable dry_run."
-                    )
-                else:
-                    try:
-                        raw_reply = call_openrouter_raw(
-                            messages=or_messages,
-                            model="openai/gpt-5.1",
-                            max_tokens=600,
-                            temperature=0.4,
-                        )
-                        assistant_reply = raw_reply.strip()
-                    except Exception as e:
-                        assistant_reply = f"Error calling the chatbot: {e}"
-            
-                with st.chat_message("assistant"):
-                    st.markdown(assistant_reply)
-            
-                st.session_state["refine_chat_history"].append(
-                    {"role": "assistant", "content": assistant_reply}
-                )
-            
-            with tab_cards:
-                st.subheader("Resolution cards generated for kept questions")
-            kept_questions = [e for e in initial_entries if e.get("keep_final")]
-            
+
             if not kept_questions:
                 st.info(
                     "No questions are marked keep_final. Run the pipeline and return here to view resolution cards."
@@ -1794,4 +1220,6 @@ else:
                 for e in kept_questions:
                     card_entry = card_store.get(e["id"], {})
                     st.markdown(f"**Resolution card – {e['id']} ({e['title']}):**")
-                    st.markdown(card_entry.get("card", "(no card generated)") or "(no card generated)")
+                    st.markdown(
+                        card_entry.get("card", "(no card generated)") or "(no card generated)"
+                    )
