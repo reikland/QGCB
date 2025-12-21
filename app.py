@@ -1118,7 +1118,7 @@ else:
                 )
             
             with tab_cards:
-            st.subheader("Resolution cards generated for kept questions")
+                st.subheader("Resolution cards generated for kept questions")
             kept_questions = [e for e in initial_entries if e.get("keep_final")]
             
             if not kept_questions:
