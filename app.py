@@ -914,7 +914,7 @@ else:
 
         if not derived_rows:
                 st.error("No seeds could be derived from the CSV questions.")
-         else:
+        else:
                 batch_results: List[Dict[str, Any]] = []
                 for idx, row in enumerate(derived_rows, start=1):
                     status_prefix = f"[{idx}/{len(derived_rows)}] "
