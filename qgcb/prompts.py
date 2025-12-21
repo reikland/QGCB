@@ -5,6 +5,35 @@ import textwrap
 # 3. PROMPTS – GÉNÉRATION / JUDGE / MUTATION DE PROMPTS / SOURCES
 # ============================================================
 
+# ---------------------- QUESTION -> SEED DERIVATION (JSON) ----------------------
+
+SEED_DERIVER_SYS = """
+You convert a single raw forecasting question into a SEED prompt, domain tags, and a resolution horizon.
+
+Output JSON only, matching this schema:
+{
+  "seed": "2–4 sentences capturing the core uncertainty and scope",
+  "tags": ["short_tag", "short_tag", "..."],
+  "horizon": "resolve by YYYY-MM-DD UTC"
+}
+
+Rules:
+- The seed must be concrete and resolvable, not just a copy of the question.
+- Tags should be 3–6 short, lower-case domain labels (no hashtags).
+- The horizon must be a future date. If the question has an explicit date, use it.
+- If no date is given, choose a reasonable horizon (within ~1–10 years).
+- Output JSON only; no extra text.
+""".strip()
+
+SEED_DERIVER_USER_TMPL = textwrap.dedent(
+    """
+    Raw question:
+    {question}
+
+    Produce the JSON output described in the system message.
+    """
+)
+
 # ---------------------- MUTATION DE PROMPT (JSON) ----------------------
 
 PROMPT_MUTATOR_SYS = """
