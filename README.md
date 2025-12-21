@@ -1,36 +1,36 @@
 # QGCB – Metaculus Proto Question Generator
 
-Cette app Streamlit génère et évalue des proto-questions de forecasting (pipeline mutations → sources → questions) en s'appuyant sur OpenRouter.
+This Streamlit app generates and evaluates proto-questions for forecasting (pipeline: mutations → sources → questions) using OpenRouter.
 
-## Prérequis
+## Prerequisites
 - Python 3.10+
-- Une clé OpenRouter (`OPENROUTER_API_KEY`)
+- An OpenRouter key (`OPENROUTER_API_KEY`)
 
-## Installation rapide
+## Quick Installation
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Lancer l'app Streamlit
-1. Exportez votre clé (ou saisissez-la dans la sidebar après lancement) :
+## Run the Streamlit App
+1. Export your key (or enter it in the sidebar after launch):
    ```bash
    export OPENROUTER_API_KEY="sk-or-..."
    ```
-2. Démarrez Streamlit depuis la racine du repo :
+2. Start Streamlit from the repo root:
    ```bash
    streamlit run app.py
    ```
-3. Dans l'UI, choisissez vos modèles (main/judge) ou gardez les valeurs par défaut, puis cliquez sur **Run full pipeline**.
+3. In the UI, choose your models (main/judge) or keep the defaults, then click **Run full pipeline**.
 
-> Inutile de créer une nouvelle app ou de pointer sur `__init__` : sélectionnez simplement `app.py` comme entrypoint.
+> No need to create a new app or point to `__init__`: simply select `app.py` as the entrypoint.
 
-## Tests rapides
+## Quick Tests
 ```bash
 python -m py_compile app.py qgcb/*.py
 ```
 
 ## Structure
-- `app.py` : interface Streamlit.
-- `qgcb/` : logique métier (prompts, pipeline, OpenRouter helpers, modèles Pydantic, config).
+- `app.py`: Streamlit interface.
+- `qgcb/`: business logic (prompts, pipeline, OpenRouter helpers, Pydantic models, config).
