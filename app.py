@@ -912,7 +912,7 @@ else:
         initial_entries = res["initial"]
 
 
-            if not derived_rows:
+        if not derived_rows:
                 st.error("No seeds could be derived from the CSV questions.")
             else:
                 batch_results: List[Dict[str, Any]] = []
