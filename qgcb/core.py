@@ -12,6 +12,8 @@ import streamlit as st
 import json as _json
 from pydantic import BaseModel, Field, ValidationError
 
+from qgcb.prompts import CATEGORIES_DISPLAY
+
 # ============================================================
 # 1. CONFIG / CONSTANTS
 # ============================================================
@@ -837,13 +839,19 @@ def generate_initial_questions(
         attempts += 1
         need = n - len(all_questions)
 
+        type_counts = _allocate_question_types(need)
+
         user_prompt = GEN_USER_TMPL_INITIAL.format(
             n=need,
+            n_binary=type_counts["binary"],
+            n_numeric=type_counts["numeric"],
+            n_multiple_choice=type_counts["multiple_choice"],
             seed=seed.strip(),
             prompt_text="",           # seed already inclut le prompt précis + hints en amont
             resolution_hints="(see seed context above)",
             tags=", ".join(tags) or "unspecified",
             horizon=horizon.strip() or "unspecified",
+            categories_list=CATEGORIES_DISPLAY,
         )
 
         raw = call_openrouter_raw(

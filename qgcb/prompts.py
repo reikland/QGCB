@@ -2,6 +2,28 @@
 
 import textwrap
 
+CATEGORIES = [
+    "Technology",
+    "Social Sciences",
+    "Natural Sciences",
+    "Economy & Business",
+    "Environment & Climate",
+    "Sports & Entertainment",
+    "Space",
+    "Nuclear Technology & Risks",
+    "Artificial Intelligence",
+    "Cryptocurrencies",
+    "Computing and Math",
+    "Health & Pandemics",
+    "Politics",
+    "Metaculus",
+    "Law",
+    "Geopolitics",
+    "Elections",
+]
+
+CATEGORIES_DISPLAY = ", ".join(CATEGORIES)
+
 # 3. PROMPTS – GÉNÉRATION / JUDGE / MUTATION DE PROMPTS / SOURCES
 # ============================================================
 
@@ -176,6 +198,7 @@ Content constraints:
   (dataset + table/report name, edition/year, and URL or platform path if known). If several
   similarly named pages exist, pick the most authoritative one and add a short disambiguation
   cue (e.g., "use the 2024 IMF WEO October database country table for GDP, not earlier editions").
+- Each question MUST include a Category from this fixed list: {categories_list}.
 - Type must be one of: binary, numeric, multiple_choice.
 - For numeric questions:
   - Provide a reasonable Range-min/Range-max and set Open-lower-bound / Open-upper-bound to true/false.
@@ -197,6 +220,7 @@ Role: CORE or VARIANT
 Title: <short title, <= 100 characters, single line>
 Question: <2–4 sentences that fully specify the resolution criteria, time bounds, actors, units, and fallback handling; do not add ratings>
 Angle: <short phrase capturing the angle within the cluster>
+Category: <choose ONE value from {categories_list}>
 Question-weight: <float; use 1 unless correlated with another question>
 Type: <binary|numeric|multiple_choice>
 Inbound-outcome-count: <integer; required for numeric only, blank otherwise>
@@ -212,7 +236,7 @@ Candidate-source: <two or three precise public pages or endpoints to resolve, wi
 
 Between blocks you MAY optionally have a single blank line.
 You MUST NOT output anything else before, between, or after the blocks.
-""".strip()
+""".strip().format(categories_list=CATEGORIES_DISPLAY)
 
 GEN_USER_TMPL_INITIAL = textwrap.dedent(
     """
@@ -222,10 +246,11 @@ GEN_USER_TMPL_INITIAL = textwrap.dedent(
     - N_questions = {n}.
     - You MUST output EXACTLY N_questions blocks, labelled QUESTION 1, QUESTION 2, ..., QUESTION {n}.
     - Any extra text or missing block makes the output INVALID.
-    - Type distribution for this cluster MUST be:
-      - binary: {n_binary}
-      - numeric: {n_numeric}
-      - multiple_choice: {n_multiple_choice}
+      - Type distribution for this cluster MUST be:
+        - binary: {n_binary}
+        - numeric: {n_numeric}
+        - multiple_choice: {n_multiple_choice}
+    - Each question MUST include a Category line with ONE value chosen from: {categories_list}.
 
     Root seed (global theme, do NOT restate it):
     {seed}
