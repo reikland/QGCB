@@ -23,6 +23,7 @@ class ProtoQuestion(BaseModel):
     open_upper_bound: Optional[bool] = None
     unit: str = ""
     candidate_source: str = Field(default="", alias="candidate_source")
+    category: str = ""
     rating: str = ""
     rating_rationale: str = ""
     raw_block: str = ""
@@ -179,6 +180,7 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
                 "open_upper_bound": None,
                 "unit": "",
                 "candidate_source": "",
+                "category": "",
                 "rating": "",
                 "rating_rationale": "",
             }
@@ -225,6 +227,7 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
                 "open_upper_bound": None,
                 "unit": "",
                 "candidate_source": "",
+                "category": "",
                 "rating": "",
                 "rating_rationale": "",
             }
@@ -284,6 +287,8 @@ def parse_proto_questions_from_text(text: str) -> List[ProtoQuestion]:
             current["rating_rationale"] = line.split(":", 1)[1].strip()
         elif lower.startswith("angle:"):
             current["angle"] = line.split(":", 1)[1].strip()
+        elif lower.startswith("category:"):
+            current["category"] = line.split(":", 1)[1].strip()
         elif lower.startswith("type:"):
             current["type"] = line.split(":", 1)[1].strip()
         elif lower.startswith("inbound-outcome-count:"):

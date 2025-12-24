@@ -11,6 +11,8 @@ from qgcb.models import (
 )
 from qgcb.openrouter import call_openrouter_raw, call_openrouter_structured
 from qgcb.prompts import (
+    CATEGORIES,
+    CATEGORIES_DISPLAY,
     GEN_SYS_INITIAL,
     GEN_USER_TMPL_INITIAL,
     JUDGE_SYS_KEEP,
@@ -66,6 +68,7 @@ def mock_proto_questions(seed: str, n: int) -> List[ProtoQuestion]:
         role = "CORE" if i < 2 else "VARIANT"
         angle = "anchor question" if i < 2 else f"variant angle #{i}"
         q_type = type_sequence[i]
+        category = random.choice(CATEGORIES)
         inbound_outcome_count = None
         options = ""
         group_variable = ""
@@ -103,6 +106,7 @@ def mock_proto_questions(seed: str, n: int) -> List[ProtoQuestion]:
                 inbound_outcome_count=inbound_outcome_count,
                 options=options,
                 group_variable=group_variable,
+                category=category,
                 range_min=range_min,
                 range_max=range_max,
                 zero_point=zero_point,
@@ -347,6 +351,7 @@ def generate_initial_questions(
             resolution_hints=resolution_hints.strip() or "(see seed context above)",
             tags=", ".join(tags) or "unspecified",
             horizon=horizon.strip() or "unspecified",
+            categories_list=CATEGORIES_DISPLAY,
         )
 
         raw = call_openrouter_raw(

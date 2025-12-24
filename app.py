@@ -247,6 +247,7 @@ def run_full_pipeline(
                     "parent_prompt_id": p_id,
                     "role": q.role,
                     "angle": q.angle,
+                    "category": q.category,
                     "title": q.title,
                     "question": q.question,
                     "question_weight": q.question_weight,
@@ -677,6 +678,7 @@ if input_mode == "CSV questions":
                             "unit": entry.get("unit"),
                             "candidate_source": entry.get("candidate_source"),
                             "angle": entry.get("angle"),
+                            "category": entry.get("category"),
                             "judge_rationale": entry.get("judge_rationale"),
                             "raw_question_block": entry.get("raw_question_block"),
                             "judge_resolvability": entry["judge_resolvability"],
@@ -771,6 +773,7 @@ if input_mode == "CSV questions":
                                 "unit",
                                 "candidate_source",
                                 "angle",
+                                "category",
                                 "judge_rationale",
                                 "raw_question_block",
                             ]
@@ -984,6 +987,7 @@ else:
                         "unit",
                         "candidate_source",
                         "angle",
+                        "category",
                         "judge_rationale",
                         "raw_question_block",
                     ]
