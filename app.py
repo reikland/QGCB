@@ -977,9 +977,7 @@ else:
                 st.caption("All generation-0 proto-questions.")
                 st.dataframe(df_init_view, width="stretch")
 
-                export_columns = [
-                    col for col in df_init_view.columns.tolist() if col != "rating"
-                ]
+                export_columns = df_init_view.columns.tolist()
                 df_init_for_download = df_init[export_columns].copy()
                 df_init_for_download["seed"] = seed
                 df_init_for_download["resolution_horizon"] = horizon
