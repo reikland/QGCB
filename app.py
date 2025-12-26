@@ -978,7 +978,9 @@ else:
                 st.dataframe(df_init_view, width="stretch")
 
                 export_columns = [
-                    col for col in df_init_view.columns.tolist() if col != "rating"
+                    col
+                    for col in df_init_view.columns.tolist()
+                    if col not in {"rating", "rating_rationale"}
                 ]
                 df_init_for_download = df_init[export_columns].copy()
                 df_init_for_download["seed"] = seed
