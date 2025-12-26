@@ -659,7 +659,6 @@ if input_mode == "CSV questions":
                             "batch_id": f"b{idx}",
                             "input_question": run["input_question"],
                             "seed": seed,
-                            "domain_tags": ", ".join(tags),
                             "resolution_horizon": horizon,
                             "id": entry["id"],
                             "title": entry["title"],
@@ -677,15 +676,8 @@ if input_mode == "CSV questions":
                             "open_upper_bound": entry.get("open_upper_bound"),
                             "unit": entry.get("unit"),
                             "candidate_source": entry.get("candidate_source"),
-                            "angle": entry.get("angle"),
                             "category": entry.get("category"),
-                            "judge_rationale": entry.get("judge_rationale"),
                             "raw_question_block": entry.get("raw_question_block"),
-                            "judge_resolvability": entry["judge_resolvability"],
-                            "judge_info": entry["judge_info"],
-                            "judge_decision_impact": entry["judge_decision_impact"],
-                            "judge_voi": entry["judge_voi"],
-                            "judge_minutes_to_resolve": entry["judge_minutes_to_resolve"],
                             "judge_verdict": entry.get("judge_verdict", ""),
                             "judge_verdict_rationale": entry.get("judge_verdict_rationale", ""),
                         }
@@ -1001,8 +993,20 @@ else:
                 st.dataframe(df_init_view, width="stretch")
 
                 df_init_for_download = df_init_view.copy()
+                df_init_for_download = df_init_for_download.drop(
+                    columns=[
+                        "judge_resolvability",
+                        "judge_info",
+                        "judge_decision_impact",
+                        "judge_voi",
+                        "judge_minutes_to_resolve",
+                        "judge_rationale",
+                        "angle",
+                        "domain_tags",
+                    ],
+                    errors="ignore",
+                )
                 df_init_for_download["seed"] = seed
-                df_init_for_download["domain_tags"] = ", ".join(tags)
                 df_init_for_download["resolution_horizon"] = horizon
             else:
                 st.info("No proto-questions available.")
