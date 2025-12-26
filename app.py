@@ -231,6 +231,7 @@ def run_full_pipeline(
 
         # Attribuer IDs et génération
         initial_entries: List[Dict[str, Any]] = []
+        kept_ids: List[str] = []
 
         for idx_q, q in enumerate(all_questions):
             q_id = f"g0-q{idx_q+1}"
@@ -240,13 +241,16 @@ def run_full_pipeline(
             rating_rationale_val = (
                 jr.verdict_rationale or jr.rationale or q.rating_rationale or ""
             ).strip()
+            is_kept = bool(keep_final_flags[idx_q])
+            if is_kept:
+                kept_ids.append(q_id)
+
             initial_entries.append(
                 {
                     "id": q_id,
                     "generation": 0,
                     "parent_prompt_id": p_id,
                     "role": q.role,
-                    "angle": q.angle,
                     "category": q.category,
                     "title": q.title,
                     "question": q.question,
@@ -265,23 +269,15 @@ def run_full_pipeline(
                     "candidate_source": q.candidate_source,
                     "rating": rating_val,
                     "rating_rationale": rating_rationale_val,
-                    "judge_keep": jr.keep,
-                    "judge_resolvability": jr.resolvability,
-                    "judge_info": jr.info,
-                    "judge_decision_impact": jr.decision_impact,
-                    "judge_voi": jr.voi,
-                    "judge_minutes_to_resolve": jr.minutes_to_resolve,
                     "judge_verdict": jr.verdict,
                     "judge_verdict_rationale": jr.verdict_rationale,
-                    "judge_rationale": jr.rationale,
                     "judge_raw_line": jr.raw_line,
-                    "keep_final": bool(keep_final_flags[idx_q]),
                 }
             )
 
         raw_gen_output = "\n\n".join(raw_gen_chunks)
 
-        kept_entries = [e for e in initial_entries if e.get("keep_final")]
+        kept_entries = [e for e in initial_entries if e["id"] in kept_ids]
         card_store: Dict[str, Any] = {}
 
         if kept_entries:
@@ -330,6 +326,7 @@ def run_full_pipeline(
             "horizon": horizon,
             "prompts": prompt_entries,
             "initial": initial_entries,
+            "kept_ids": kept_ids,
             "resolution_cards": card_store,
             "expanded": [],  # legacy placeholder for potential future generations
             "raw_prompt_mutation_output": raw_mut_output,
@@ -650,8 +647,9 @@ if input_mode == "CSV questions":
                 tags = res_run["tags"]
                 horizon = res_run["horizon"]
                 card_store = res_run.get("resolution_cards", {})
+                kept_ids_run = set(res_run.get("kept_ids", []))
                 for entry in res_run.get("initial", []):
-                    if not entry.get("keep_final"):
+                    if entry.get("id") not in kept_ids_run:
                         continue
                     card_entry = card_store.get(entry["id"], {})
                     kept_rows.append(
@@ -741,13 +739,6 @@ if input_mode == "CSV questions":
                             [
                                 "id",
                                 "parent_prompt_id",
-                                "keep_final",
-                                "judge_keep",
-                                "judge_resolvability",
-                                "judge_info",
-                                "judge_decision_impact",
-                                "judge_voi",
-                                "judge_minutes_to_resolve",
                                 "judge_verdict",
                                 "judge_verdict_rationale",
                                 "title",
@@ -764,9 +755,9 @@ if input_mode == "CSV questions":
                                 "open_upper_bound",
                                 "unit",
                                 "candidate_source",
-                                "angle",
                                 "category",
-                                "judge_rationale",
+                                "rating",
+                                "rating_rationale",
                                 "raw_question_block",
                             ]
                         ].copy()
@@ -786,8 +777,9 @@ if input_mode == "CSV questions":
             selected_seed = selected_res["seed"]
             selected_tags = selected_res["tags"]
             selected_horizon = selected_res["horizon"]
+            selected_kept_ids = set(selected_res.get("kept_ids", []))
             selected_kept = [
-                e for e in selected_res["initial"] if e.get("keep_final")
+                e for e in selected_res["initial"] if e.get("id") in selected_kept_ids
             ]
 
             kept_preview_lines = [
@@ -868,12 +860,15 @@ if input_mode == "CSV questions":
             st.subheader("Resolution cards generated for kept questions")
             for idx, run in enumerate(batch_results, start=1):
                 res_run = run["result"]
-                kept_questions = [e for e in res_run["initial"] if e.get("keep_final")]
+                kept_ids_run = set(res_run.get("kept_ids", []))
+                kept_questions = [
+                    e for e in res_run["initial"] if e.get("id") in kept_ids_run
+                ]
                 st.markdown(
                     f"**Batch b{idx}** — {len(kept_questions)} kept questions"
                 )
                 if not kept_questions:
-                    st.caption("No questions are marked keep_final for this seed.")
+                    st.caption("No questions were shortlisted for this seed.")
                     continue
                 card_store = res_run.get("resolution_cards", {})
                 for e in kept_questions:
@@ -896,6 +891,7 @@ else:
         horizon = res["horizon"]
         prompt_entries = res.get("prompts", [])
         initial_entries = res["initial"]
+        kept_ids = set(res.get("kept_ids", []))
 
         tab_overview, tab_cards = st.tabs(
             ["Overview & questions", "Resolution cards (kept questions)"]
@@ -955,13 +951,6 @@ else:
                     [
                         "id",
                         "parent_prompt_id",
-                        "keep_final",
-                        "judge_keep",
-                        "judge_resolvability",
-                        "judge_info",
-                        "judge_decision_impact",
-                        "judge_voi",
-                        "judge_minutes_to_resolve",
                         "judge_verdict",
                         "judge_verdict_rationale",
                         "title",
@@ -978,34 +967,18 @@ else:
                         "open_upper_bound",
                         "unit",
                         "candidate_source",
-                        "angle",
                         "category",
-                        "judge_rationale",
+                        "rating",
+                        "rating_rationale",
                         "raw_question_block",
                     ]
                 ].copy()
 
-                st.caption(
-                    "All generation-0 proto-questions with strict judge scores "
-                    "(resolvability, info, decision impact, VOI, minutes_to_resolve) "
-                    "and final selection flag (keep_final)."
-                )
+                st.caption("All generation-0 proto-questions.")
                 st.dataframe(df_init_view, width="stretch")
 
-                df_init_for_download = df_init_view.copy()
-                df_init_for_download = df_init_for_download.drop(
-                    columns=[
-                        "judge_resolvability",
-                        "judge_info",
-                        "judge_decision_impact",
-                        "judge_voi",
-                        "judge_minutes_to_resolve",
-                        "judge_rationale",
-                        "angle",
-                        "domain_tags",
-                    ],
-                    errors="ignore",
-                )
+                export_columns = df_init_view.columns.tolist()
+                df_init_for_download = df_init[export_columns].copy()
                 df_init_for_download["seed"] = seed
                 df_init_for_download["resolution_horizon"] = horizon
             else:
@@ -1027,18 +1000,12 @@ else:
                         with st.expander("Resolution criteria & explicit sources", expanded=False):
                             srcs = prompt_sources_map.get(row["parent_prompt_id"], [])
                             src_block = "\n".join(f"- {s}" for s in srcs) or "- (no sources returned)"
-                            st.markdown(
-                                f"- **Resolvability:** {row['judge_resolvability']}/5  \n"
-                                f"- **Information value:** {row['judge_info']}/5  \n"
-                                f"- **Decision impact:** {row['judge_decision_impact']:.2f}  \n"
-                                f"- **VOI:** {row['judge_voi']:.2f}  \n"
-                                f"- **Minutes to resolve:** {row['judge_minutes_to_resolve']:.1f}  \n"
-                                f"- **Judge verdict:** {row.get('judge_verdict', '') or '(unspecified)'}  \n"
-                                f"- **Verdict rationale:** {row.get('judge_verdict_rationale', '') or row['judge_rationale']}  \n"
-                                f"- **Rationale:** {row['judge_rationale']}  \n"
-                                f"- **Candidate source (generator hint):** {row['candidate_source']}  \n"
-                                f"- **Sources to use for resolution:**\n{src_block}"
-                            )
+                        st.markdown(
+                            f"- **Judge verdict:** {row.get('judge_verdict', '') or '(unspecified)'}  \n"
+                            f"- **Verdict rationale:** {row.get('judge_verdict_rationale', '') or '(missing)'}  \n"
+                            f"- **Candidate source (generator hint):** {row['candidate_source']}  \n"
+                            f"- **Sources to use for resolution:**\n{src_block}"
+                        )
 
             with st.expander("Debug: raw model outputs"):
                 st.markdown("**Raw prompt mutation output (JSON):**")
@@ -1086,7 +1053,7 @@ else:
                 else:
                     st.caption("No parsed question blocks available.")
 
-            kept_questions = [e for e in initial_entries if e.get("keep_final")]
+            kept_questions = [e for e in initial_entries if e.get("id") in kept_ids]
 
             st.subheader("Download CSV")
             if df_init.empty or df_init_for_download is None:
@@ -1106,7 +1073,7 @@ else:
 
             st.subheader("Follow-up chat (GPT‑5 with kept questions)")
             if kept_questions:
-                with st.expander("Kept questions (keep_final = True)", expanded=False):
+                with st.expander("Shortlisted questions", expanded=False):
                     for e in kept_questions:
                         st.markdown(
                             f"- **{e['id']}** – {e['title']}\n\n"
@@ -1114,7 +1081,7 @@ else:
                         )
             else:
                 st.info(
-                    "No questions are marked keep_final. The chat will still work but without injected context."
+                    "No questions were shortlisted. The chat will still work but without injected context."
                 )
 
             kept_preview_lines = [
@@ -1190,11 +1157,11 @@ else:
 
         with tab_cards:
             st.subheader("Resolution cards generated for kept questions")
-            kept_questions = [e for e in initial_entries if e.get("keep_final")]
+            kept_questions = [e for e in initial_entries if e.get("id") in kept_ids]
 
             if not kept_questions:
                 st.info(
-                    "No questions are marked keep_final. Run the pipeline and return here to view resolution cards."
+                    "No questions were shortlisted. Run the pipeline and return here to view resolution cards."
                 )
             else:
                 card_store = st.session_state.get("resolution_cards", {})
