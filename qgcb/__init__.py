@@ -4,6 +4,7 @@ from qgcb.config import DEFAULT_JUDGE_MODEL, DEFAULT_MAIN_MODEL
 from qgcb.models import JudgeKeepResult, ProtoQuestion, model_to_dict
 from qgcb.openrouter import call_openrouter_raw, call_openrouter_structured, get_openrouter_key
 from qgcb.pipeline import (
+    build_kept_questions_payload,
     derive_seed_from_question,
     find_resolution_sources_for_prompt,
     generate_initial_questions,
@@ -12,6 +13,7 @@ from qgcb.pipeline import (
     judge_one_question_keep,
     mock_proto_questions,
     mutate_seed_prompt,
+    run_kept_questions_llm_hook,
     select_top_k,
 )
 from qgcb import prompts
@@ -23,6 +25,7 @@ __all__ = [
     "ProtoQuestion",
     "call_openrouter_raw",
     "call_openrouter_structured",
+    "build_kept_questions_payload",
     "derive_seed_from_question",
     "find_resolution_sources_for_prompt",
     "generate_initial_questions",
@@ -34,5 +37,6 @@ __all__ = [
     "mock_proto_questions",
     "mutate_seed_prompt",
     "prompts",
+    "run_kept_questions_llm_hook",
     "select_top_k",
 ]
