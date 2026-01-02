@@ -15,6 +15,8 @@ from qgcb import (
     generate_initial_questions,
     generate_resolution_card,
     get_openrouter_key,
+    build_kept_questions_payload,
+    run_kept_questions_llm_hook,
     judge_initial_questions,
     mutate_seed_prompt,
     select_top_k,
@@ -278,6 +280,38 @@ def run_full_pipeline(
         raw_gen_output = "\n\n".join(raw_gen_chunks)
 
         kept_entries = [e for e in initial_entries if e["id"] in kept_ids]
+        kept_batch_payload = build_kept_questions_payload(
+            kept_entries=kept_entries,
+            seed=seed,
+            tags=tags,
+            horizon=horizon,
+            generated_at_utc=generated_at,
+        )
+        kept_llm_hook: Dict[str, Any] | None = None
+
+        if kept_entries:
+            with st.spinner(
+                f"{status_prefix}Triggering LLM hook on kept questions (pre-export batch)..."
+            ):
+                try:
+                    kept_llm_hook = run_kept_questions_llm_hook(
+                        payload=kept_batch_payload,
+                        model=main_model,
+                        dry_run=dry_run,
+                    )
+                except Exception as e:
+                    st.warning(
+                        f"{status_prefix}Kept-questions hook failed; payload still assembled: {e}"
+                    )
+                    kept_llm_hook = {
+                        "error": str(e),
+                        "request_payload": kept_batch_payload,
+                    }
+        else:
+            kept_llm_hook = {
+                "status": "no_kept_questions",
+                "request_payload": kept_batch_payload,
+            }
         card_store: Dict[str, Any] = {}
 
         if kept_entries:
@@ -327,6 +361,8 @@ def run_full_pipeline(
             "prompts": prompt_entries,
             "initial": initial_entries,
             "kept_ids": kept_ids,
+            "kept_batch_payload": kept_batch_payload,
+            "kept_llm_hook": kept_llm_hook,
             "resolution_cards": card_store,
             "expanded": [],  # legacy placeholder for potential future generations
             "raw_prompt_mutation_output": raw_mut_output,

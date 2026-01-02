@@ -1,5 +1,6 @@
 """Pipeline helpers orchestrating the prompt/generation/judge steps."""
 from typing import Any, Dict, List, Optional
+import textwrap
 import json as _json
 import random
 
@@ -25,6 +26,37 @@ from qgcb.prompts import (
     SEED_DERIVER_USER_TMPL,
     SOURCE_SYS,
     SOURCE_USER_TMPL,
+)
+
+
+# ---------------------------------------------------------------------------
+# Step X – Hook on kept / selected questions (pre-export batch)
+# ---------------------------------------------------------------------------
+
+KEPT_HOOK_SYS = textwrap.dedent(
+    """
+    You are a post-selection hook running on the FINAL, KEPT proto-questions
+    that passed the judge. You receive a JSON payload that contains ALL kept
+    questions and relevant metadata (seed, tags, horizon, prompt id, etc.).
+
+    Your job is to acknowledge the batch and return JSON ONLY with:
+    - a `summary` object (total questions, counts by type and category),
+    - an `echo` array mirroring the incoming questions with the fields:
+      id, title, question, type, category, role, parent_prompt_id,
+      question_weight, rating, rating_rationale, candidate_source, horizon,
+      tags, seed.
+
+    Do NOT add natural language. Respond with pure JSON, no markdown.
+    """
+)
+
+KEPT_HOOK_USER_TMPL = textwrap.dedent(
+    """
+    Kept questions payload (JSON):
+    {payload_json}
+
+    Respond with JSON only using the schema described in the system message.
+    """
 )
 
 
@@ -586,11 +618,99 @@ def select_top_k(
     }
 
 
+def build_kept_questions_payload(
+    kept_entries: List[Dict[str, Any]],
+    seed: str,
+    tags: List[str],
+    horizon: str,
+    generated_at_utc: str,
+) -> Dict[str, Any]:
+    """Assemble the JSON payload shared with the post-selection LLM hook."""
+
+    questions: List[Dict[str, Any]] = []
+    for entry in kept_entries:
+        questions.append(
+            {
+                "id": entry.get("id", ""),
+                "title": entry.get("title", ""),
+                "question": entry.get("question", ""),
+                "type": entry.get("type", ""),
+                "category": entry.get("category", ""),
+                "role": entry.get("role", ""),
+                "parent_prompt_id": entry.get("parent_prompt_id", ""),
+                "question_weight": entry.get("question_weight", 1.0),
+                "rating": entry.get("rating", ""),
+                "rating_rationale": entry.get("rating_rationale", ""),
+                "candidate_source": entry.get("candidate_source", ""),
+                "horizon": horizon,
+                "tags": tags,
+                "seed": seed,
+            }
+        )
+
+    return {
+        "seed": seed,
+        "tags": tags,
+        "horizon": horizon,
+        "generated_at_utc": generated_at_utc,
+        "n_kept": len(questions),
+        "questions": questions,
+    }
+
+
+def run_kept_questions_llm_hook(
+    payload: Dict[str, Any],
+    model: str,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """
+    Trigger an LLM call on the aggregated kept-question payload.
+
+    The hook returns a minimal summary plus an echo of the questions to
+    make pre-export auditing explicit. In dry_run mode the function
+    returns a stubbed response without calling OpenRouter.
+    """
+
+    if dry_run:
+        type_counts: Dict[str, int] = {}
+        category_counts: Dict[str, int] = {}
+        for q in payload.get("questions", []):
+            t = str(q.get("type", "")).strip().lower() or "unknown"
+            c = str(q.get("category", "")).strip().lower() or "uncategorized"
+            type_counts[t] = type_counts.get(t, 0) + 1
+            category_counts[c] = category_counts.get(c, 0) + 1
+        return {
+            "status": "dry_run",
+            "summary": {
+                "total": len(payload.get("questions", [])),
+                "by_type": type_counts,
+                "by_category": category_counts,
+            },
+            "echo": payload.get("questions", []),
+            "raw_output": "",
+        }
+
+    payload_json = _json.dumps(payload, ensure_ascii=False, indent=2)
+    data = call_openrouter_structured(
+        system_prompt=KEPT_HOOK_SYS,
+        user_prompt=KEPT_HOOK_USER_TMPL.format(payload_json=payload_json),
+        model=model,
+        schema_hint='{"summary":{"total":0,"by_type":{"string":0},"by_category":{"string":0}},"echo":[{"id":"string"}]}',
+        max_tokens=1200,
+        temperature=0.0,
+    )
+
+    raw_output = _json.dumps(data, ensure_ascii=False, indent=2)
+    return {"raw_output": raw_output, "data": data, "request_payload": payload}
+
+
 __all__ = [
     "derive_seed_from_question",
     "find_resolution_sources_for_prompt",
     "generate_initial_questions",
     "generate_resolution_card",
+    "build_kept_questions_payload",
+    "run_kept_questions_llm_hook",
     "judge_initial_questions",
     "judge_one_question_keep",
     "mock_proto_questions",
