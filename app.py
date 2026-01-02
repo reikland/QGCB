@@ -20,6 +20,7 @@ from qgcb import (
     run_kept_questions_llm_hook,
     judge_initial_questions,
     mutate_seed_prompt,
+    serialize_questions_to_csv,
     select_top_k,
 )
 
@@ -744,10 +745,21 @@ if input_mode == "CSV questions":
 
             st.subheader("Download CSV (kept questions + resolution cards)")
             if kept_rows:
-                df_kept = pd.DataFrame(kept_rows)
+                csv_data = serialize_questions_to_csv(
+                    kept_rows,
+                    extra_fields=[
+                        "batch_id",
+                        "input_question",
+                        "resolution_card",
+                        "resolution_horizon",
+                        "raw_question_block",
+                        "judge_verdict",
+                        "judge_verdict_rationale",
+                    ],
+                )
                 st.download_button(
                     "Download kept questions + resolution cards (CSV)",
-                    data=df_kept.to_csv(index=False).encode("utf-8"),
+                    data=csv_data.encode("utf-8"),
                     file_name="metaculus_kept_questions_with_cards_batch.csv",
                     mime="text/csv",
                 )
@@ -1128,10 +1140,13 @@ else:
                 df_init_for_download["resolution_card"] = df_init_for_download["id"].apply(
                     lambda q_id: card_store.get(q_id, {}).get("card", "")
                 )
-                csv_bytes = df_init_for_download.to_csv(index=False).encode("utf-8")
+                csv_str = serialize_questions_to_csv(
+                    df_init_for_download.to_dict(orient="records"),
+                    extra_fields=["resolution_card", "raw_question_block", "judge_verdict", "judge_verdict_rationale"],
+                )
                 st.download_button(
                     "Download proto-questions + resolution cards (CSV)",
-                    data=csv_bytes,
+                    data=csv_str.encode("utf-8"),
                     file_name="metaculus_proto_questions_with_cards.csv",
                     mime="text/csv",
                 )

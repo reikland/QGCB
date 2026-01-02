@@ -3,6 +3,9 @@ from typing import Any, Dict, List, Optional
 import textwrap
 import json as _json
 import random
+import csv
+import io
+import logging
 
 from pydantic import ValidationError
 
@@ -73,6 +76,9 @@ TYPE_DISTRIBUTION_TARGET = {
     "numeric": 0.3,
     "multiple_choice": 0.2,
 }
+
+logger = logging.getLogger(__name__)
+logger.addHandler(logging.NullHandler())
 
 
 def _allocate_question_types(
@@ -362,7 +368,7 @@ def generate_initial_questions(
     resolution_hints: str = "",
     dry_run: bool = False,
     max_attempts: int = 3,
-) -> Dict[str, Any]:
+    ) -> Dict[str, Any]:
     if dry_run:
         questions = mock_proto_questions(seed, n)
         return {
@@ -416,12 +422,15 @@ def generate_initial_questions(
     questions = all_questions[:n]
     raw_output = "\n\n-----\n\n".join(raw_chunks)
 
+    distribution_check = enforce_type_distribution(questions)
+
     return {
         "questions": questions,
         "raw_output": raw_output,
         "n_parsed": len(questions),
         "n_requested": n,
         "attempts": attempts,
+        "distribution_check": distribution_check,
     }
 
 
@@ -439,6 +448,69 @@ def _type_counts(questions: List[ProtoQuestion]) -> Dict[str, int]:
         else:
             counts["unknown"] += 1
     return counts
+
+
+def _type_proportions(counts: Dict[str, int]) -> Dict[str, float]:
+    total = sum(counts.get(k, 0) for k in TYPE_DISTRIBUTION_TARGET)
+    if total <= 0:
+        return {key: 0.0 for key in TYPE_DISTRIBUTION_TARGET}
+    return {
+        key: round(counts.get(key, 0) / total, 4)
+        for key in TYPE_DISTRIBUTION_TARGET
+    }
+
+
+def enforce_type_distribution(
+    questions: List[ProtoQuestion],
+    tolerance: float = 0.0,
+) -> Dict[str, Any]:
+    """
+    Recalculate distribution on generated questions and block if off target.
+
+    Args:
+        questions: Generated proto-questions.
+        tolerance: Allowed absolute deviation per type (proportion). Defaults to
+            0 for a strict match against the rounded target counts.
+
+    Raises:
+        ValueError: If the observed distribution diverges beyond tolerance.
+    """
+
+    counts = _type_counts(questions)
+    proportions = _type_proportions(counts)
+    n = sum(counts.get(k, 0) for k in TYPE_DISTRIBUTION_TARGET)
+    target_counts = _allocate_question_types(n)
+
+    allowed_diff = max(1, int(round(tolerance * n))) if tolerance > 0 else 0
+    mismatches: Dict[str, int] = {}
+    for t, expected_count in target_counts.items():
+        observed = counts.get(t, 0)
+        if abs(observed - expected_count) > allowed_diff:
+            mismatches[t] = observed - expected_count
+
+    if counts.get("unknown", 0):
+        mismatches["unknown"] = counts["unknown"]
+
+    if mismatches:
+        msg = (
+            "Type distribution deviates from target; aborting batch. "
+            f"counts={counts}, proportions={proportions}, target_counts={target_counts}, "
+            f"deviations={mismatches}, tolerance={tolerance} (allowed diff={allowed_diff})"
+        )
+        logger.error(msg)
+        raise ValueError(msg)
+
+    logger.info(
+        "Type distribution validated (counts=%s, proportions=%s, target_counts=%s)",
+        counts,
+        proportions,
+        target_counts,
+    )
+    return {
+        "counts": counts,
+        "proportions": proportions,
+        "target_counts": target_counts,
+    }
 
 
 def _format_questions_for_rebalancer(questions: List[ProtoQuestion]) -> str:
@@ -574,6 +646,144 @@ def rebalance_question_types(
         "target_counts": target_counts,
         "raw_output": raw_output,
     }
+
+
+CSV_CORE_FIELDS = [
+    "id",
+    "title",
+    "question",
+    "type",
+    "options",
+    "category",
+    "question_weight",
+    "role",
+    "parent_prompt_id",
+    "inbound_outcome_count",
+    "group_variable",
+    "range_min",
+    "range_max",
+    "zero_point",
+    "open_lower_bound",
+    "open_upper_bound",
+    "unit",
+    "candidate_source",
+    "rating",
+    "rating_rationale",
+    "horizon",
+    "tags",
+]
+
+
+def _normalize_question_type(val: str) -> str:
+    cleaned = (val or "").strip().lower().replace("-", "_")
+    mapping = {
+        "mc": "multiple_choice",
+        "multiple choice": "multiple_choice",
+        "multiple_choice": "multiple_choice",
+        "numeric": "numeric",
+        "number": "numeric",
+        "binary": "binary",
+        "yes_no": "binary",
+    }
+    return mapping.get(cleaned, cleaned)
+
+
+def _normalize_options(options: Any) -> str:
+    if options is None:
+        return ""
+    if isinstance(options, (list, tuple)):
+        return "|".join(str(opt).strip() for opt in options if str(opt).strip())
+    return "|".join(
+        seg.strip() for seg in str(options).split("|") if seg is not None and str(seg).strip()
+    )
+
+
+def _coerce_number(val: Any) -> Any:
+    if val is None:
+        return ""
+    try:
+        num = float(val)
+        return int(num) if num.is_integer() else num
+    except Exception:
+        return ""
+
+
+def normalize_question_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Normalize a proto-question dict into a CSV-friendly schema.
+    """
+
+    type_norm = _normalize_question_type(entry.get("type", ""))
+    tags_val = entry.get("tags", [])
+    normalized = {
+        "id": str(entry.get("id", "")).strip(),
+        "title": str(entry.get("title", "")).strip(),
+        "question": str(entry.get("question", "")).strip(),
+        "type": type_norm,
+        "options": _normalize_options(entry.get("options", "")),
+        "category": str(entry.get("category", "")).strip(),
+        "question_weight": _coerce_number(entry.get("question_weight")),
+        "role": str(entry.get("role", "")).strip(),
+        "parent_prompt_id": str(entry.get("parent_prompt_id", "")).strip(),
+        "inbound_outcome_count": _coerce_number(entry.get("inbound_outcome_count")),
+        "group_variable": str(entry.get("group_variable", "")).strip(),
+        "range_min": _coerce_number(entry.get("range_min")),
+        "range_max": _coerce_number(entry.get("range_max")),
+        "zero_point": _coerce_number(entry.get("zero_point")),
+        "open_lower_bound": entry.get("open_lower_bound", ""),
+        "open_upper_bound": entry.get("open_upper_bound", ""),
+        "unit": str(entry.get("unit", "")).strip(),
+        "candidate_source": str(entry.get("candidate_source", "")).strip(),
+        "rating": str(entry.get("rating", "")).strip(),
+        "rating_rationale": str(entry.get("rating_rationale", "")).strip(),
+        "horizon": str(
+            entry.get("horizon")
+            or entry.get("resolution_horizon")
+            or ""
+        ).strip(),
+        "tags": ", ".join(tags_val) if isinstance(tags_val, list) else str(tags_val or "").strip(),
+    }
+
+    if not normalized["question"] and normalized["title"]:
+        normalized["question"] = f"Title: {normalized['title']}"
+
+    return normalized
+
+
+def serialize_questions_to_csv(
+    rows: List[Dict[str, Any]], extra_fields: Optional[List[str]] = None
+) -> str:
+    """Normalize and serialize a list of question dicts to CSV."""
+
+    extra_fields = extra_fields or []
+    fieldnames = CSV_CORE_FIELDS.copy()
+    for f in extra_fields:
+        if f not in fieldnames:
+            fieldnames.append(f)
+
+    normalized_rows: List[Dict[str, Any]] = []
+    for idx, row in enumerate(rows):
+        try:
+            base = normalize_question_entry(row)
+        except Exception as exc:  # pragma: no cover - defensive
+            logger.warning("Skipping row %s due to normalization error: %s", idx, exc)
+            continue
+
+        for f in extra_fields:
+            val = row.get(f, "")
+            if isinstance(val, list):
+                val = "; ".join(str(v).strip() for v in val if str(v).strip())
+            base[f] = "" if val is None else val
+        normalized_rows.append(base)
+
+    if not normalized_rows:
+        raise ValueError("No valid questions to serialize.")
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fieldnames)
+    writer.writeheader()
+    writer.writerows(normalized_rows)
+    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -868,6 +1078,7 @@ __all__ = [
     "derive_seed_from_question",
     "find_resolution_sources_for_prompt",
     "generate_initial_questions",
+    "enforce_type_distribution",
     "rebalance_question_types",
     "generate_resolution_card",
     "build_kept_questions_payload",
@@ -876,5 +1087,7 @@ __all__ = [
     "judge_one_question_keep",
     "mock_proto_questions",
     "mutate_seed_prompt",
+    "normalize_question_entry",
+    "serialize_questions_to_csv",
     "select_top_k",
 ]
