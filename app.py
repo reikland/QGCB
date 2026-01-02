@@ -15,6 +15,7 @@ from qgcb import (
     generate_initial_questions,
     generate_resolution_card,
     get_openrouter_key,
+    rebalance_question_types,
     build_kept_questions_payload,
     run_kept_questions_llm_hook,
     judge_initial_questions,
@@ -181,6 +182,29 @@ def run_full_pipeline(
         if not all_questions:
             st.error(f"{status_prefix}No proto-questions were parsed. Check generator prompts.")
             return None
+
+        type_rebalance = {
+            "before_counts": {},
+            "after_counts": {},
+            "target_counts": {},
+            "raw_output": "",
+            "adjusted": False,
+        }
+
+        try:
+            type_rebalance = rebalance_question_types(
+                questions=all_questions,
+                model=main_model,
+                dry_run=dry_run,
+            )
+            all_questions = type_rebalance.get("questions", all_questions)
+            if type_rebalance.get("adjusted"):
+                st.info(
+                    f"{status_prefix}Type rebalance applied: {type_rebalance.get('before_counts')} → "
+                    f"{type_rebalance.get('after_counts')} (target {type_rebalance.get('target_counts')})."
+                )
+        except Exception as e:
+            st.warning(f"{status_prefix}Type rebalance controller failed: {e}")
 
         # Construire les contextes individuels pour le judge
         prompt_by_id = {pe["prompt_id"]: pe for pe in prompt_entries}
@@ -364,6 +388,7 @@ def run_full_pipeline(
             "kept_batch_payload": kept_batch_payload,
             "kept_llm_hook": kept_llm_hook,
             "resolution_cards": card_store,
+            "type_rebalance": type_rebalance,
             "expanded": [],  # legacy placeholder for potential future generations
             "raw_prompt_mutation_output": raw_mut_output,
             "raw_source_finder_outputs": {
