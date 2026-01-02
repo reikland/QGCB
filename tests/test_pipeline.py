@@ -50,12 +50,16 @@ class CsvNormalizationTests(unittest.TestCase):
 
         normalized = normalize_question_entry(row)
         self.assertEqual(normalized["type"], "multiple_choice")
-        self.assertEqual(normalized["options"], "A|B|C")
         self.assertEqual(normalized["tags"], "finance, markets")
+        self.assertNotIn("options", normalized)
+        self.assertNotIn("rating", normalized)
 
         csv_data = serialize_questions_to_csv([row], extra_fields=["resolution_card"])
+        header = csv_data.split("\n")[0]
         self.assertIn("multiple_choice", csv_data)
-        self.assertIn("resolution_card", csv_data.split("\n")[0])
+        self.assertIn("resolution_card", header)
+        self.assertNotIn("options", header)
+        self.assertNotIn("rating_rationale", header)
 
 
 if __name__ == "__main__":

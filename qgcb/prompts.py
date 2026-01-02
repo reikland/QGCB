@@ -368,6 +368,10 @@ RESOLUTION_CARD_USER_TMPL = textwrap.dedent(
     Body (as generated):
     {question_block}
 
+    Question type: {question_type}
+    Multiple-choice options (if any): {options_line}
+    Numeric bounds/unit (if numeric): {numeric_context}
+
     Candidate-source line (keep to 2–3 concrete sources):
     {candidate_source}
 

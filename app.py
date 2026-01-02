@@ -15,6 +15,7 @@ from qgcb import (
     generate_initial_questions,
     generate_resolution_card,
     get_openrouter_key,
+    rebalance_final_entries,
     rebalance_question_types,
     build_kept_questions_payload,
     run_kept_questions_llm_hook,
@@ -741,6 +742,23 @@ if input_mode == "CSV questions":
                             "judge_verdict": entry.get("judge_verdict", ""),
                             "judge_verdict_rationale": entry.get("judge_verdict_rationale", ""),
                         }
+                    )
+
+            if kept_rows:
+                try:
+                    rebalance_final = rebalance_final_entries(
+                        rows=kept_rows, model=main_model, dry_run=dry_run
+                    )
+                    kept_rows = rebalance_final.get("rows", kept_rows)
+                    if rebalance_final.get("adjusted"):
+                        st.info(
+                            "Applied final type rebalance to batch output "
+                            f"({rebalance_final.get('before_counts')} → {rebalance_final.get('after_counts')}, "
+                            f"target {rebalance_final.get('target_counts')})."
+                        )
+                except Exception as e:
+                    st.warning(
+                        f"Final batch rebalance failed; continuing with original rows: {e}"
                     )
 
             st.subheader("Download CSV (kept questions + resolution cards)")

@@ -648,15 +648,122 @@ def rebalance_question_types(
     }
 
 
+def _entry_to_proto(entry: Dict[str, Any]) -> ProtoQuestion:
+    """Convert a loosely typed dict entry into a ProtoQuestion."""
+
+    return ProtoQuestion(
+        role=str(entry.get("role", "VARIANT") or "VARIANT"),
+        angle=str(entry.get("angle", "") or ""),
+        title=str(entry.get("title", "") or ""),
+        question=str(entry.get("question", "") or ""),
+        question_weight=float(entry.get("question_weight", 1.0) or 1.0),
+        type=str(entry.get("type", "") or ""),
+        inbound_outcome_count=entry.get("inbound_outcome_count"),
+        options=str(entry.get("options", "") or ""),
+        group_variable=str(entry.get("group_variable", "") or ""),
+        range_min=entry.get("range_min"),
+        range_max=entry.get("range_max"),
+        zero_point=entry.get("zero_point"),
+        open_lower_bound=entry.get("open_lower_bound"),
+        open_upper_bound=entry.get("open_upper_bound"),
+        unit=str(entry.get("unit", "") or ""),
+        candidate_source=str(entry.get("candidate_source", "") or ""),
+        category=str(entry.get("category", "") or ""),
+        rating=str(entry.get("rating", "") or ""),
+        rating_rationale=str(entry.get("rating_rationale", "") or ""),
+        raw_block=str(entry.get("raw_question_block", "") or ""),
+    )
+
+
+def _fill_defaults_for_type(entry: Dict[str, Any]) -> Dict[str, Any]:
+    """Ensure type-specific fields are populated when converting away from binary."""
+
+    q_type = (entry.get("type") or "").strip().lower()
+    updated = entry.copy()
+
+    if q_type == "multiple_choice":
+        options = str(updated.get("options", "") or "").strip()
+        if not options:
+            options = "Option A|Option B|Option C"
+        updated["options"] = options
+        card = str(updated.get("resolution_card", "") or "").strip()
+        if options and "multiple-choice options" not in card.lower():
+            separator = "\n\n" if card else ""
+            updated["resolution_card"] = (
+                f"{card}{separator}Multiple-choice options: {options.replace('|', ' | ')}"
+            )
+    elif q_type == "numeric":
+        if updated.get("range_min") in {None, ""}:
+            updated["range_min"] = 0
+        if updated.get("range_max") in {None, ""}:
+            updated["range_max"] = 100
+        if updated.get("open_lower_bound") in {None, ""}:
+            updated["open_lower_bound"] = False
+        if updated.get("open_upper_bound") in {None, ""}:
+            updated["open_upper_bound"] = False
+        if not str(updated.get("unit", "") or "").strip():
+            updated["unit"] = "units"
+    return updated
+
+
+def rebalance_final_entries(
+    rows: List[Dict[str, Any]],
+    model: str,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    """
+    Apply the type rebalancer once on the final batch entries to enforce targets.
+
+    This converts the loose dict rows (post-judge / pre-export) back into
+    ProtoQuestion objects, runs the type rebalancer LLM, reapplies the
+    adjustments to the rows, fills required fields for non-binary types, and
+    validates the resulting distribution.
+    """
+
+    if not rows:
+        return {
+            "rows": rows,
+            "adjusted": False,
+            "before_counts": {},
+            "after_counts": {},
+            "target_counts": {},
+            "raw_output": "",
+        }
+
+    proto_questions = [_entry_to_proto(r) for r in rows]
+    rebalanced = rebalance_question_types(
+        questions=proto_questions, model=model, dry_run=dry_run
+    )
+    updated_questions = rebalanced.get("questions", proto_questions)
+
+    updated_rows: List[Dict[str, Any]] = []
+    for original, updated_q in zip(rows, updated_questions):
+        merged = original.copy()
+        merged.update(updated_q.dict())
+        merged = _fill_defaults_for_type(merged)
+        updated_rows.append(merged)
+
+    enforce_type_distribution(
+        [ProtoQuestion(**{**q.dict()}) for q in updated_questions]
+    )
+
+    return {
+        "rows": updated_rows,
+        "adjusted": rebalanced.get("adjusted", False),
+        "before_counts": rebalanced.get("before_counts", {}),
+        "after_counts": rebalanced.get("after_counts", {}),
+        "target_counts": rebalanced.get("target_counts", {}),
+        "raw_output": rebalanced.get("raw_output", ""),
+    }
+
+
 CSV_CORE_FIELDS = [
     "id",
     "title",
     "question",
     "type",
-    "options",
     "category",
     "question_weight",
-    "role",
     "parent_prompt_id",
     "inbound_outcome_count",
     "group_variable",
@@ -667,8 +774,6 @@ CSV_CORE_FIELDS = [
     "open_upper_bound",
     "unit",
     "candidate_source",
-    "rating",
-    "rating_rationale",
     "horizon",
     "tags",
 ]
@@ -720,10 +825,8 @@ def normalize_question_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
         "title": str(entry.get("title", "")).strip(),
         "question": str(entry.get("question", "")).strip(),
         "type": type_norm,
-        "options": _normalize_options(entry.get("options", "")),
         "category": str(entry.get("category", "")).strip(),
         "question_weight": _coerce_number(entry.get("question_weight")),
-        "role": str(entry.get("role", "")).strip(),
         "parent_prompt_id": str(entry.get("parent_prompt_id", "")).strip(),
         "inbound_outcome_count": _coerce_number(entry.get("inbound_outcome_count")),
         "group_variable": str(entry.get("group_variable", "")).strip(),
@@ -734,8 +837,6 @@ def normalize_question_entry(entry: Dict[str, Any]) -> Dict[str, Any]:
         "open_upper_bound": entry.get("open_upper_bound", ""),
         "unit": str(entry.get("unit", "")).strip(),
         "candidate_source": str(entry.get("candidate_source", "")).strip(),
-        "rating": str(entry.get("rating", "")).strip(),
-        "rating_rationale": str(entry.get("rating_rationale", "")).strip(),
         "horizon": str(
             entry.get("horizon")
             or entry.get("resolution_horizon")
@@ -811,6 +912,20 @@ def generate_resolution_card(
         }
 
     question_block = str(question_entry.get("question", "")).strip()
+    question_type = str(question_entry.get("type", "")).strip() or "unspecified"
+    options_line = str(question_entry.get("options", "") or "").strip()
+    numeric_context = ""
+    if question_type.lower() == "numeric":
+        range_min = question_entry.get("range_min")
+        range_max = question_entry.get("range_max")
+        unit_val = str(question_entry.get("unit", "") or "").strip()
+        numeric_context = (
+            f"Range: {range_min} to {range_max}; Open lower bound={question_entry.get('open_lower_bound')}; "
+            f"Open upper bound={question_entry.get('open_upper_bound')}; Unit={unit_val or 'unspecified'}"
+        )
+    if question_type.lower() == "multiple_choice" and not options_line:
+        options_line = "Option A | Option B | Option C"
+
     user_prompt = RESOLUTION_CARD_USER_TMPL.format(
         seed=seed.strip(),
         tags=", ".join(tags) or "unspecified",
@@ -818,6 +933,9 @@ def generate_resolution_card(
         question_id=question_entry.get("id", "unknown"),
         title=question_entry.get("title", "(missing title)"),
         question_block=question_block,
+        question_type=question_type,
+        options_line=options_line or "(none)",
+        numeric_context=numeric_context or "(not applicable)",
         candidate_source=question_entry.get("candidate_source", ""),
         rating=question_entry.get("rating", ""),
         rating_rationale=question_entry.get("rating_rationale", ""),
@@ -1081,6 +1199,7 @@ __all__ = [
     "enforce_type_distribution",
     "rebalance_question_types",
     "generate_resolution_card",
+    "rebalance_final_entries",
     "build_kept_questions_payload",
     "run_kept_questions_llm_hook",
     "judge_initial_questions",
