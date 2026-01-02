@@ -41,6 +41,8 @@ if "resolution_cards" not in st.session_state:
     st.session_state["resolution_cards"] = {}
 if "batch_results" not in st.session_state:
     st.session_state["batch_results"] = None
+if "type_rebalance_result" not in st.session_state:
+    st.session_state["type_rebalance_result"] = None
 
 
 def run_full_pipeline(
@@ -574,6 +576,7 @@ else:
 if run_button:
     main_model = (main_model_input or "").strip() or DEFAULT_MAIN_MODEL
     judge_model = (judge_model_input or "").strip() or DEFAULT_JUDGE_MODEL
+    st.session_state["type_rebalance_result"] = None
 
     if input_mode == "CSV questions":
         if not uploaded_questions:
@@ -745,6 +748,9 @@ if input_mode == "CSV questions":
                     )
 
             if kept_rows:
+                for row in kept_rows:
+                    row.pop("rating", None)
+                    row.pop("rating_rationale", None)
                 try:
                     rebalance_final = rebalance_final_entries(
                         rows=kept_rows, model=main_model, dry_run=dry_run
@@ -1158,16 +1164,76 @@ else:
                 df_init_for_download["resolution_card"] = df_init_for_download["id"].apply(
                     lambda q_id: card_store.get(q_id, {}).get("card", "")
                 )
+
+                base_rows = df_init_for_download.to_dict(orient="records")
+                extra_fields = [
+                    "resolution_card",
+                    "raw_question_block",
+                    "judge_verdict",
+                    "judge_verdict_rationale",
+                ]
+
                 csv_str = serialize_questions_to_csv(
-                    df_init_for_download.to_dict(orient="records"),
-                    extra_fields=["resolution_card", "raw_question_block", "judge_verdict", "judge_verdict_rationale"],
+                    base_rows,
+                    extra_fields=extra_fields,
                 )
                 st.download_button(
                     "Download proto-questions + resolution cards (CSV)",
                     data=csv_str.encode("utf-8"),
                     file_name="metaculus_proto_questions_with_cards.csv",
                     mime="text/csv",
+                    key="download-base-csv",
                 )
+
+                st.markdown("**Optional: LLM type rebalance (50% binary / 30% numeric / 20% MCQ)**")
+                rebalance_state = st.session_state.get("type_rebalance_result") or None
+
+                if st.button(
+                    "Rebalance question types (LLM)", key="rebalance-types-single"
+                ):
+                    with st.spinner(
+                        "Rebalancing question types with the main model (may take a moment)..."
+                    ):
+                        try:
+                            rebalanced = rebalance_final_entries(
+                                rows=base_rows,
+                                model=(main_model_input or DEFAULT_MAIN_MODEL),
+                                dry_run=dry_run,
+                            )
+                            st.session_state["type_rebalance_result"] = rebalanced
+                            rebalance_state = rebalanced
+                            before_counts = rebalanced.get("before_counts", {})
+                            after_counts = rebalanced.get("after_counts", {})
+                            target_counts = rebalanced.get("target_counts", {})
+                            st.success(
+                                "Type rebalance complete."
+                                f" Before: {before_counts} → After: {after_counts}"
+                                f" (target {target_counts})."
+                            )
+                        except Exception as e:
+                            st.error(f"Type rebalance failed: {e}")
+
+                if rebalance_state and rebalance_state.get("rows"):
+                    before_counts = rebalance_state.get("before_counts", {})
+                    after_counts = rebalance_state.get("after_counts", {})
+                    target_counts = rebalance_state.get("target_counts", {})
+                    st.info(
+                        "Latest rebalance: "
+                        f"{before_counts} → {after_counts} (target {target_counts})."
+                    )
+
+                    rebalanced_rows = rebalance_state.get("rows", base_rows)
+                    rebalanced_csv = serialize_questions_to_csv(
+                        rebalanced_rows,
+                        extra_fields=extra_fields,
+                    )
+                    st.download_button(
+                        "Download rebalanced proto-questions (CSV)",
+                        data=rebalanced_csv.encode("utf-8"),
+                        file_name="metaculus_proto_questions_rebalanced.csv",
+                        mime="text/csv",
+                        key="download-rebalanced-csv",
+                    )
 
             st.subheader("Follow-up chat (GPT‑5 with kept questions)")
             if kept_questions:
