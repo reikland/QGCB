@@ -4,6 +4,8 @@ import textwrap
 import json as _json
 import random
 
+from pydantic import ValidationError
+
 from qgcb.models import (
     JudgeKeepResult,
     ProtoQuestion,
@@ -26,6 +28,8 @@ from qgcb.prompts import (
     SEED_DERIVER_USER_TMPL,
     SOURCE_SYS,
     SOURCE_USER_TMPL,
+    TYPE_REBALANCER_SYS,
+    TYPE_REBALANCER_USER_TMPL,
 )
 
 
@@ -64,12 +68,17 @@ KEPT_HOOK_USER_TMPL = textwrap.dedent(
 # Mock helpers (dry_run)
 # ---------------------------------------------------------------------------
 
-def _allocate_question_types(n: int) -> Dict[str, int]:
-    proportions = {
-        "binary": 0.5,
-        "numeric": 0.2,
-        "multiple_choice": 0.3,
-    }
+TYPE_DISTRIBUTION_TARGET = {
+    "binary": 0.5,
+    "numeric": 0.3,
+    "multiple_choice": 0.2,
+}
+
+
+def _allocate_question_types(
+    n: int, proportions: Dict[str, float] | None = None
+) -> Dict[str, int]:
+    proportions = proportions or TYPE_DISTRIBUTION_TARGET
     base = {key: int(n * pct) for key, pct in proportions.items()}
     remainder = n - sum(base.values())
     if remainder > 0:
@@ -417,6 +426,157 @@ def generate_initial_questions(
 
 
 # ---------------------------------------------------------------------------
+# Step C1.b – Type rebalance controller (post-generation)
+# ---------------------------------------------------------------------------
+
+def _type_counts(questions: List[ProtoQuestion]) -> Dict[str, int]:
+    counts = {key: 0 for key in TYPE_DISTRIBUTION_TARGET}
+    counts["unknown"] = 0
+    for q in questions:
+        t = (q.type or "").strip().lower()
+        if t in counts:
+            counts[t] += 1
+        else:
+            counts["unknown"] += 1
+    return counts
+
+
+def _format_questions_for_rebalancer(questions: List[ProtoQuestion]) -> str:
+    lines: List[str] = []
+    for idx, q in enumerate(questions, start=1):
+        lines.append(
+            textwrap.dedent(
+                f"""
+                {idx}. ID=g0-q{idx}; Title={q.title}
+                Type={q.type}; Question={q.question}
+                Options={q.options}; Group-variable={q.group_variable};
+                Range=[{q.range_min}, {q.range_max}] (open_lower={q.open_lower_bound}, open_upper={q.open_upper_bound}); Unit={q.unit}; inbound_outcome_count={q.inbound_outcome_count}
+                """.strip()
+            )
+        )
+    return "\n".join(lines)
+
+
+def rebalance_question_types(
+    questions: List[ProtoQuestion],
+    model: str,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    n = len(questions)
+    if n == 0:
+        return {
+            "questions": questions,
+            "adjusted": False,
+            "before_counts": {},
+            "after_counts": {},
+            "target_counts": {},
+            "raw_output": "",
+        }
+
+    before_counts = _type_counts(questions)
+    target_counts = _allocate_question_types(n)
+
+    target_matches = all(
+        before_counts.get(k, 0) == target_counts.get(k, 0) for k in target_counts
+    ) and before_counts.get("unknown", 0) == 0
+
+    if target_matches:
+        return {
+            "questions": questions,
+            "adjusted": False,
+            "before_counts": before_counts,
+            "after_counts": before_counts,
+            "target_counts": target_counts,
+            "raw_output": "",
+        }
+
+    if dry_run:
+        return {
+            "questions": questions,
+            "adjusted": False,
+            "before_counts": before_counts,
+            "after_counts": before_counts,
+            "target_counts": target_counts,
+            "raw_output": "",
+        }
+
+    questions_block = _format_questions_for_rebalancer(questions)
+    user_prompt = TYPE_REBALANCER_USER_TMPL.format(
+        current_counts=before_counts,
+        target_counts=target_counts,
+        n_questions=n,
+        questions_block=questions_block,
+    )
+
+    data = call_openrouter_structured(
+        system_prompt=TYPE_REBALANCER_SYS,
+        user_prompt=user_prompt,
+        model=model,
+        schema_hint='{"questions":[{"index":1,"type":"binary"}],"notes":"string"}',
+        max_tokens=2200,
+        temperature=0.2,
+    )
+
+    raw_output = _json.dumps(data, ensure_ascii=False, indent=2)
+
+    updated_questions: List[ProtoQuestion] = questions.copy()
+    adjustments = False
+
+    for item in data.get("questions", []) or []:
+        try:
+            idx = int(item.get("index", 0)) - 1
+        except Exception:
+            continue
+        if idx < 0 or idx >= len(questions):
+            continue
+
+        base = questions[idx].dict()
+        updates: Dict[str, Any] = {}
+        if item.get("title"):
+            updates["title"] = str(item.get("title")).strip()
+        if item.get("question"):
+            updates["question"] = str(item.get("question")).strip()
+        type_val = str(item.get("type", "")).strip().lower()
+        if type_val:
+            updates["type"] = type_val
+        if "options" in item:
+            updates["options"] = str(item.get("options") or "").strip()
+        if "group_variable" in item:
+            updates["group_variable"] = str(item.get("group_variable") or "").strip()
+        if "range_min" in item:
+            updates["range_min"] = item.get("range_min")
+        if "range_max" in item:
+            updates["range_max"] = item.get("range_max")
+        if "open_lower_bound" in item:
+            updates["open_lower_bound"] = item.get("open_lower_bound")
+        if "open_upper_bound" in item:
+            updates["open_upper_bound"] = item.get("open_upper_bound")
+        if "unit" in item:
+            updates["unit"] = str(item.get("unit") or "").strip()
+        if "inbound_outcome_count" in item:
+            updates["inbound_outcome_count"] = item.get("inbound_outcome_count")
+
+        try:
+            updated_questions[idx] = ProtoQuestion(**{**base, **updates})
+            if type_val and type_val != (questions[idx].type or "").lower():
+                adjustments = True
+        except ValidationError:
+            continue
+
+    after_counts = _type_counts(updated_questions)
+    adjustments = adjustments or after_counts != before_counts
+
+    return {
+        "questions": updated_questions,
+        "adjusted": adjustments,
+        "before_counts": before_counts,
+        "after_counts": after_counts,
+        "target_counts": target_counts,
+        "raw_output": raw_output,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Step D – Fiches de résolution pour questions conservées
 # ---------------------------------------------------------------------------
 
@@ -708,6 +868,7 @@ __all__ = [
     "derive_seed_from_question",
     "find_resolution_sources_for_prompt",
     "generate_initial_questions",
+    "rebalance_question_types",
     "generate_resolution_card",
     "build_kept_questions_payload",
     "run_kept_questions_llm_hook",

@@ -277,6 +277,66 @@ GEN_USER_TMPL_INITIAL = textwrap.dedent(
     """
 )
 
+# ---------------------- TYPE REBALANCER (JSON) ----------------------
+
+TYPE_REBALANCER_SYS = """
+You rebalance proto forecasting questions across binary / numeric / multiple_choice types.
+
+Target distribution (strict):
+- binary: 50%
+- numeric: 30%
+- multiple_choice: 20%
+
+Objective:
+- Adjust ONLY the minimal subset of questions needed to hit the target counts.
+- Preserve the original meaning and resolution criteria; conversions must be "à la marge" (light touch).
+- Prefer safe conversions (e.g., numeric threshold → binary yes/no; binary about levels → numeric with explicit bounds; multi-choice → binary by collapsing to the most meaningful option; binary → multi-choice by expanding mutually exclusive, explicit outcomes).
+- Keep ordering and identifiers stable; NEVER drop a question.
+
+Output JSON ONLY with this shape:
+{
+  "questions": [
+    {
+      "index": 1,
+      "title": "...",
+      "question": "...",
+      "type": "binary|numeric|multiple_choice",
+      "options": "...",
+      "group_variable": "...",
+      "range_min": 0,
+      "range_max": 0,
+      "open_lower_bound": false,
+      "open_upper_bound": false,
+      "unit": "...",
+      "inbound_outcome_count": 200
+    },
+    ...
+  ],
+  "notes": "short summary of what changed"
+}
+
+Rules:
+- Keep anchor titles and angles intact unless a minor tweak is needed for the new type.
+- Do not invent new resolution targets or sources; stay faithful to the provided text.
+- Always include the FINAL type for every question so the controller can audit the batch.
+- If distribution already matches the target, echo the questions as-is (still include type for each).
+""".strip()
+
+TYPE_REBALANCER_USER_TMPL = textwrap.dedent(
+    """
+    Target distribution: binary=50%, numeric=30%, multiple_choice=20%.
+    Current counts: {current_counts}
+    Target counts for N={n_questions}: {target_counts}
+
+    Question inventory (keep order and IDs):
+    {questions_block}
+
+    Adjust the MINIMUM number of questions to reach the exact target counts.
+    Keep semantics and resolution paths intact; avoid risky rewrites.
+    Respond with JSON only as described in the system message.
+    """
+)
+
 # ---------------------- FICHES DE RÉSOLUTION (QUESTIONS CONSERVÉES) ----------------------
 
 RESOLUTION_CARD_SYS = """
